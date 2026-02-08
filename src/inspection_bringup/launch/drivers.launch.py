@@ -1,4 +1,6 @@
 from launch import LaunchDescription
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 from launch_ros.descriptions import ComposableNode
 from launch_ros.actions import ComposableNodeContainer
@@ -38,11 +40,33 @@ def get_camera_container():
         on_exit=Shutdown(),
     )
 
+def get_realsense_launch():
+    """启动 RealSense 官方驱动，参数由 realsense_driver 配置包提供"""
+    return IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory('realsense2_camera'),
+                'launch',
+                'rs_launch.py'
+            )
+        ),
+        launch_arguments={
+            'camera_namespace': 'inspection/realsense',
+            'camera_name': 'd435',
+            'config_file': os.path.join(
+                get_package_share_directory('realsense_driver'),
+                'config',
+                'realsense.yaml'
+            ),
+        }.items(),
+    )
+
 
 def generate_launch_description():
     return LaunchDescription([
         # 相机驱动容器
         get_camera_container(),
+        get_realsense_launch(),
         
         # TF 静态变换：机械臂末端到工业相机
         Node(

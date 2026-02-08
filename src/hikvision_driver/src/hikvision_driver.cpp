@@ -1,5 +1,6 @@
 #include <hikvision_driver/hikvision_driver.h>
 #include <unistd.h>
+#include <cstring>
 #include <iostream>
 #include <string>
 
@@ -337,6 +338,7 @@ void HikvisionDriverNode::close_device() {
     if (camera_handle) {
         MV_CC_CloseDevice(camera_handle);
         MV_CC_DestroyHandle(camera_handle);
+        camera_handle = nullptr;
     }
     RCLCPP_INFO(this->get_logger(), "Hikvision camera closed!");
 }

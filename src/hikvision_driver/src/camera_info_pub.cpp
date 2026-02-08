@@ -1,6 +1,7 @@
 #include <camera_info_manager/camera_info_manager.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
+#include <chrono>
 
 int main(int argc, char* argv[]) {
     rclcpp::init(argc, argv);
@@ -45,6 +46,7 @@ int main(int argc, char* argv[]) {
     });
 
     rclcpp::spin(node);
+    rclcpp::shutdown();
     
     return EXIT_SUCCESS;
 }
