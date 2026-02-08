@@ -10,7 +10,6 @@
   <buildtool_depend>ament_cmake_auto</buildtool_depend>
 
   <exec_depend>hikvision_driver</exec_depend>
-  <exec_depend>realsense_driver</exec_depend>
   <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
 
