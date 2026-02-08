@@ -1,5 +1,7 @@
 #include <hikvision_driver/hikvision_driver.h>
 #include <unistd.h>
+#include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <string>
@@ -35,6 +37,11 @@ HikvisionDriverNode::HikvisionDriverNode(const rclcpp::NodeOptions& options)
     bool use_sensor_data_qos = get_parameter("use_sensor_data_qos").as_bool();
     std::string camera_info_url = get_parameter("camera_info_url").as_string();
     use_trigger_mode = get_parameter("use_trigger_mode").as_bool();
+    max_retry_attempts = get_parameter("max_retry_attempts").as_int();
+    retry_delay_sec = get_parameter("retry_delay_sec").as_double();
+    device_index = get_parameter("device_index").as_int();
+    use_mfs_config = get_parameter("use_mfs_config").as_bool();
+    mfs_config_path = get_parameter("mfs_config_path").as_string();
     
     // 创建pub
     bool use_intra = options.use_intra_process_comms();
@@ -104,6 +111,11 @@ HikvisionDriverNode::~HikvisionDriverNode() {
 
 void HikvisionDriverNode::declare_params() {
     this->declare_parameter("sn", "");
+    this->declare_parameter("device_index", 0);
+    this->declare_parameter("max_retry_attempts", 3);
+    this->declare_parameter("retry_delay_sec", 1.0);
+    this->declare_parameter("use_mfs_config", false);
+    this->declare_parameter("mfs_config_path", "");
     this->declare_parameter("camera_info_url",
                             "package://hikvision_driver/config/camera_info.yaml");
     this->declare_parameter("exposure_time", 4000.0);
@@ -120,49 +132,181 @@ void HikvisionDriverNode::declare_params() {
 
 void HikvisionDriverNode::init_camera() {
     MV_CC_DEVICE_INFO_LIST device_list;
+    memset(&device_list, 0, sizeof(MV_CC_DEVICE_INFO_LIST));
+
     bool device_found = false;
-    while (!device_found && rclcpp::ok()) {
-        // 枚举设备
-        UPDBW(MV_CC_EnumDevices(MV_USB_DEVICE, &device_list));
-        std::string sn_to_find = get_parameter("sn").as_string();
-        char device_sn[INFO_MAX_BUFFER_SIZE];
-        if (device_list.nDeviceNum > 0) {
-            if (get_parameter("sn").as_string() == "") {
-                // 未设置camera sn,选择第一个
-                RCLCPP_WARN(this->get_logger(),
-                            "Camera SN not set, use the first camera device");
-                UPDBE(MV_CC_CreateHandle(&camera_handle, device_list.pDeviceInfo[0]));
-                memcpy(device_sn,
-                       device_list.pDeviceInfo[0]->SpecialInfo.stUsb3VInfo.chSerialNumber,
-                       INFO_MAX_BUFFER_SIZE);
-                device_sn[63] = '\0';
-                device_found = true;
-            } else {
-                for (size_t i = 0; i < device_list.nDeviceNum; ++i) {
-                    memcpy(device_sn,
-                           device_list.pDeviceInfo[i]->SpecialInfo.stUsb3VInfo.chSerialNumber,
-                           INFO_MAX_BUFFER_SIZE);
-                    device_sn[63] = '\0';
-                    if (std::strncmp(device_sn, sn_to_find.c_str(), 64U) == 0) {
-                        UPDBE(MV_CC_CreateHandle(&camera_handle, device_list.pDeviceInfo[i]));
-                        device_found = true;
-                        break;
-                    }
-                }
-            }
+    uint32_t selected_device_index = 0;
+    std::string sn_to_find = get_parameter("sn").as_string();
+    max_retry_attempts = std::max(1, get_parameter("max_retry_attempts").as_int());
+    retry_delay_sec = get_parameter("retry_delay_sec").as_double();
+    device_index = get_parameter("device_index").as_int();
+    use_mfs_config = get_parameter("use_mfs_config").as_bool();
+    mfs_config_path = get_parameter("mfs_config_path").as_string();
+
+    for (int attempt = 0; attempt < max_retry_attempts && rclcpp::ok() && !device_found; ++attempt) {
+        if (!enumerate_devices(device_list)) {
+            std::this_thread::sleep_for(std::chrono::duration<double>(retry_delay_sec));
+            continue;
         }
-        if (device_found) {
-            RCLCPP_INFO(this->get_logger(), "Camera SN: %s", device_sn);
-            break;
+
+        if (!sn_to_find.empty()) {
+            device_found = find_device_index_by_sn(device_list, sn_to_find, selected_device_index);
+            if (!device_found) {
+                RCLCPP_WARN(
+                    this->get_logger(),
+                    "Camera SN '%s' not found (attempt %d/%d).",
+                    sn_to_find.c_str(),
+                    attempt + 1,
+                    max_retry_attempts);
+            }
         } else {
-            RCLCPP_WARN(this->get_logger(), "Camera SN: %s not found.", sn_to_find.c_str());
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+            if (device_index >= 0 && device_index < static_cast<int>(device_list.nDeviceNum)) {
+                selected_device_index = static_cast<uint32_t>(device_index);
+            } else {
+                if (device_index != 0) {
+                    RCLCPP_WARN(
+                        this->get_logger(),
+                        "Invalid device_index=%d, fallback to 0.",
+                        device_index);
+                }
+                selected_device_index = 0;
+            }
+            device_found = true;
+        }
+
+        if (!device_found) {
+            std::this_thread::sleep_for(std::chrono::duration<double>(retry_delay_sec));
         }
     }
-    if (device_found) {
-        open_device();
-        set_hk_params();
-        start_grab();
+
+    if (!device_found) {
+        RCLCPP_ERROR(this->get_logger(), "No Hikvision camera available.");
+        return;
+    }
+
+    if (camera_handle != nullptr) {
+        MV_CC_DestroyHandle(camera_handle);
+        camera_handle = nullptr;
+    }
+
+    nRet = MV_CC_CreateHandle(&camera_handle, device_list.pDeviceInfo[selected_device_index]);
+    if (nRet != MV_OK) {
+        RCLCPP_ERROR(
+            this->get_logger(),
+            "MV_CC_CreateHandle failed, error code: %x",
+            static_cast<unsigned>(nRet));
+        camera_handle = nullptr;
+        return;
+    }
+
+    const auto selected_sn = get_device_sn(device_list.pDeviceInfo[selected_device_index]);
+    RCLCPP_INFO(
+        this->get_logger(),
+        "Selected camera index=%u, type=%s, sn=%s",
+        selected_device_index,
+        device_list.pDeviceInfo[selected_device_index]->nTLayerType == MV_GIGE_DEVICE ? "GigE" : "USB",
+        selected_sn.c_str());
+
+    open_device();
+    configure_gige_network(device_list.pDeviceInfo[selected_device_index]);
+    maybe_load_mfs_config();
+    set_hk_params();
+    start_grab();
+}
+
+bool HikvisionDriverNode::enumerate_devices(MV_CC_DEVICE_INFO_LIST& device_list) {
+    memset(&device_list, 0, sizeof(MV_CC_DEVICE_INFO_LIST));
+    nRet = MV_CC_EnumDevices(MV_GIGE_DEVICE | MV_USB_DEVICE, &device_list);
+    if (nRet != MV_OK) {
+        RCLCPP_WARN(
+            this->get_logger(),
+            "MV_CC_EnumDevices failed, error code: %x",
+            static_cast<unsigned>(nRet));
+        return false;
+    }
+    if (device_list.nDeviceNum == 0) {
+        RCLCPP_WARN(this->get_logger(), "No Hikvision camera found.");
+        return false;
+    }
+    return true;
+}
+
+std::string HikvisionDriverNode::get_device_sn(const MV_CC_DEVICE_INFO* device_info) const {
+    if (device_info == nullptr) {
+        return "";
+    }
+    const char* sn_ptr = nullptr;
+    if (device_info->nTLayerType == MV_GIGE_DEVICE) {
+        sn_ptr = reinterpret_cast<const char*>(device_info->SpecialInfo.stGigEInfo.chSerialNumber);
+    } else if (device_info->nTLayerType == MV_USB_DEVICE) {
+        sn_ptr = reinterpret_cast<const char*>(device_info->SpecialInfo.stUsb3VInfo.chSerialNumber);
+    } else {
+        return "";
+    }
+    if (sn_ptr == nullptr) {
+        return "";
+    }
+    const size_t sn_len = strnlen(sn_ptr, INFO_MAX_BUFFER_SIZE);
+    return std::string(sn_ptr, sn_len);
+}
+
+bool HikvisionDriverNode::find_device_index_by_sn(
+    const MV_CC_DEVICE_INFO_LIST& device_list,
+    const std::string& target_sn,
+    uint32_t& out_index) const {
+    for (uint32_t i = 0; i < device_list.nDeviceNum; ++i) {
+        const auto device_sn = get_device_sn(device_list.pDeviceInfo[i]);
+        if (!device_sn.empty() && device_sn == target_sn) {
+            out_index = i;
+            return true;
+        }
+    }
+    return false;
+}
+
+void HikvisionDriverNode::configure_gige_network(const MV_CC_DEVICE_INFO* device_info) {
+    if (device_info == nullptr || device_info->nTLayerType != MV_GIGE_DEVICE) {
+        return;
+    }
+    const int packet_size = MV_CC_GetOptimalPacketSize(camera_handle);
+    if (packet_size <= 0) {
+        RCLCPP_WARN(
+            this->get_logger(),
+            "MV_CC_GetOptimalPacketSize failed, value=%d",
+            packet_size);
+        return;
+    }
+    nRet = MV_CC_SetIntValue(camera_handle, "GevSCPSPacketSize", packet_size);
+    if (nRet != MV_OK) {
+        RCLCPP_WARN(
+            this->get_logger(),
+            "MV_CC_SetIntValue(GevSCPSPacketSize) failed, error code: %x",
+            static_cast<unsigned>(nRet));
+    } else {
+        RCLCPP_INFO(
+            this->get_logger(),
+            "GigE packet size configured: %d",
+            packet_size);
+    }
+}
+
+void HikvisionDriverNode::maybe_load_mfs_config() {
+    if (!use_mfs_config) {
+        return;
+    }
+    if (mfs_config_path.empty()) {
+        RCLCPP_WARN(this->get_logger(), "use_mfs_config is true but mfs_config_path is empty.");
+        return;
+    }
+    nRet = MV_CC_FeatureLoad(camera_handle, mfs_config_path.c_str());
+    if (nRet != MV_OK) {
+        RCLCPP_WARN(
+            this->get_logger(),
+            "MV_CC_FeatureLoad failed: %s, error code: %x",
+            mfs_config_path.c_str(),
+            static_cast<unsigned>(nRet));
+    } else {
+        RCLCPP_INFO(this->get_logger(), "Loaded camera MFS config: %s", mfs_config_path.c_str());
     }
 }
 

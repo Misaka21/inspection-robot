@@ -58,6 +58,11 @@ private:
     
     // 触发模式
     bool use_trigger_mode = false;
+    int max_retry_attempts = 3;
+    double retry_delay_sec = 1.0;
+    int device_index = 0;
+    bool use_mfs_config = false;
+    std::string mfs_config_path;
 
     void declare_params();
     void init_camera();
@@ -74,6 +79,14 @@ private:
         const std_srvs::srv::Trigger::Request::SharedPtr request,
         std_srvs::srv::Trigger::Response::SharedPtr response);
     std::pair<int, int> get_sensor_height_width();
+    bool enumerate_devices(MV_CC_DEVICE_INFO_LIST& device_list);
+    bool find_device_index_by_sn(
+        const MV_CC_DEVICE_INFO_LIST& device_list,
+        const std::string& target_sn,
+        uint32_t& out_index) const;
+    std::string get_device_sn(const MV_CC_DEVICE_INFO* device_info) const;
+    void configure_gige_network(const MV_CC_DEVICE_INFO* device_info);
+    void maybe_load_mfs_config();
 };
 
 class CameraException : public std::exception {
