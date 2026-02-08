@@ -1,0 +1,6 @@
+# Stop inspection service request
+int32 task_id
+---
+# Response
+bool success
+string message

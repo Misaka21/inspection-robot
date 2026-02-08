@@ -1,0 +1,7 @@
+# Start inspection service request
+int32 task_id
+string inspection_type
+---
+# Response
+bool success
+string message

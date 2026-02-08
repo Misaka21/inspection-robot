@@ -1,0 +1,7 @@
+# Move to pose service request
+geometry_msgs/Pose target_pose
+float32 speed
+---
+# Response
+bool success
+string message

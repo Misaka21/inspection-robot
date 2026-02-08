@@ -1,0 +1,12 @@
+# 海康工业相机配置
+/inspection/hikvision/hikvision_driver:
+  ros__parameters:
+    sn: ""  # 相机序列号，空字符串则使用第一个可用相机
+    camera_info_url: "package://hikvision_driver/config/camera_info.yaml"
+    frame_rate: 30.0
+    exposure_time: 6000.0
+    gain: 15.0
+    digital_shift: 6.0
+    use_sensor_data_qos: false
+    use_trigger_mode: true  # 启用触发模式，配合检测流程
+    rotate_180: false

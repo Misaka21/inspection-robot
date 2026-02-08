@@ -1,0 +1,33 @@
+# ROS2 构建产物
+test/
+build/
+install/
+log/
+
+# colcon 缓存
+.colcon/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 日志文件
+*.log
+
+# 临时文件
+*.tmp
+*.bak

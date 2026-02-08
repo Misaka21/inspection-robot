@@ -1,0 +1,7 @@
+# Get inspection status service request
+int32 task_id
+---
+# Response
+bool success
+string status
+float32 progress
