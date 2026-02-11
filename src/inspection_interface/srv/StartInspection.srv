@@ -1,7 +1,11 @@
-# Start inspection service request
-int32 task_id
+# Start inspection request
+# legacy_task_id 仅用于兼容旧调用方
+int32 legacy_task_id
+string plan_id
 string inspection_type
+bool dry_run
 ---
-# Response
+# Start inspection response
 bool success
 string message
+string task_id

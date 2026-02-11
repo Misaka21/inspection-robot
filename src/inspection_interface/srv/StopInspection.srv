@@ -1,6 +1,9 @@
-# Stop inspection service request
-int32 task_id
+# Stop inspection request
+# legacy_task_id 仅用于兼容旧调用方
+int32 legacy_task_id
+string task_id
+string reason
 ---
-# Response
+# Stop inspection response
 bool success
 string message

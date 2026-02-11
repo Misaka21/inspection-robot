@@ -1,7 +1,11 @@
-# Get inspection status service request
-int32 task_id
+# Get inspection status request
+# legacy_task_id 仅用于兼容旧调用方
+int32 legacy_task_id
+string task_id
 ---
-# Response
+# Get inspection status response
 bool success
+string message
 string status
 float32 progress
+SystemState state

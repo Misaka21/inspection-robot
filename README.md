@@ -167,6 +167,20 @@ flowchart TB
   CO1 --> D4
 ```
 
+## 5.1 API 优先级决策（当前阶段）
+
+在“上位机 + 机器人 + 设备驱动”三层并行推进的阶段，接口优先级固定为：
+
+1. **外部契约层（最高优先级）**：`inspection-api/proto/inspection_gateway.proto`
+2. **机器人内部编排层**：`inspection_interface`（对齐网关语义）
+3. **设备厂商层（最低优先级）**：AGV TCP API / 相机 SDK（仅驱动内部使用）
+
+结论：当前状态下，**最优的算法接口来源是 `inspection-api` 提供的网关契约**，而不是直接基于某个设备 API 设计上层算法。
+
+- 上位机的规划与执行语义（`PlanInspection/Start/Pause/Resume/Stop/GetTaskStatus/Subscribe*`）以 `inspection-api` 为准。
+- `inspection_interface` 只承接机器人内部实时消息，并保持与网关状态模型同构（任务阶段、AGV/机械臂状态、错误信息）。
+- 驱动层继续封装设备细节，避免算法层与设备协议耦合。
+
 ## 6. 功能包设计
 
 ### 命名规则
@@ -485,19 +499,19 @@ inspection_interface/
 ├── msg/
 │   ├── AgvStatus.msg
 │   ├── ArmStatus.msg
-│   ├── InspectionPoint.msg
-│   ├── InspectionPath.msg
-│   ├── DefectResult.msg
+│   ├── DefectInfo.msg
+│   ├── InspectionResult.msg
+│   ├── InspectionTask.msg
+│   ├── RobotPose.msg
 │   └── SystemState.msg
 ├── srv/
-│   ├── DetectPose.srv
-│   ├── OptimizePath.srv
-│   ├── DetectDefect.srv
-│   ├── MoveJoint.srv
+│   ├── StartInspection.srv
+│   ├── PauseInspection.srv
+│   ├── ResumeInspection.srv
+│   ├── StopInspection.srv
+│   ├── GetInspectionStatus.srv
 │   ├── MoveToPose.srv
-│   └── TriggerCapture.srv
-└── action/
-    └── ExecuteInspection.action
+└── (当前阶段无 action)
 ```
 
 #### **inspection_bringup** (启动管理)

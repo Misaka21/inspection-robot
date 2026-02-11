@@ -1,0 +1,7 @@
+# Pause inspection request
+string task_id
+string reason
+---
+# Pause inspection response
+bool success
+string message

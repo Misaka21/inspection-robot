@@ -20,9 +20,13 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/DefectInfo.msg"
   "msg/RobotPose.msg"
   "msg/AgvStatus.msg"
+  "msg/ArmStatus.msg"
+  "msg/SystemState.msg"
   # Services
   "srv/StartInspection.srv"
   "srv/StopInspection.srv"
+  "srv/PauseInspection.srv"
+  "srv/ResumeInspection.srv"
   "srv/GetInspectionStatus.srv"
   "srv/MoveToPose.srv"
   DEPENDENCIES std_msgs geometry_msgs sensor_msgs

@@ -1,0 +1,7 @@
+# Resume inspection request
+string task_id
+string reason
+---
+# Resume inspection response
+bool success
+string message

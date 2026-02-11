@@ -466,6 +466,14 @@ private:
     status.stopped = is_stopped(state);
     status.moving = state.connected && !status.stopped;
     status.current_pose = pose;
+    if (state.has_speed) {
+      status.linear_speed = static_cast<float>(std::hypot(state.vx, state.vy));
+      status.angular_speed = static_cast<float>(state.w);
+    } else {
+      status.linear_speed = 0.0F;
+      status.angular_speed = 0.0F;
+    }
+    status.frame_id = _map_frame_id;
     status.battery_percent = to_battery_percent(state.battery_level);
     status.error_code = map_error_code(state);
 
