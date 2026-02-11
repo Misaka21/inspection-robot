@@ -1,0 +1,11 @@
+agv_driver_node:
+  ros__parameters:
+    agv_ip: "127.0.0.1"
+    protocol_version: 1
+    request_timeout_ms: 1000
+    poll_interval_ms: 200
+    cmd_vel_duration_ms: 200
+    publish_tf: true
+    stop_on_zero_cmd_vel: true
+    map_frame_id: "map"
+    base_frame_id: "base_link"

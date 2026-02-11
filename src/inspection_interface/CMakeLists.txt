@@ -19,6 +19,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/InspectionResult.msg"
   "msg/DefectInfo.msg"
   "msg/RobotPose.msg"
+  "msg/AgvStatus.msg"
   # Services
   "srv/StartInspection.srv"
   "srv/StopInspection.srv"
