@@ -780,3 +780,59 @@ map (SLAM全局坐标系)
   ]
 }
 ```
+
+## 15. 单元测试规范（必须）
+
+本项目当前阶段以**单元测试**为主，不把集成测试和硬件联调混在一起。
+
+### 15.1 单元测试范围
+
+1. 只测“纯逻辑单元”：
+   - 函数输入输出
+   - 状态机分支
+   - 参数边界与异常处理
+   - 消息/坐标转换函数
+2. 不测真实硬件链路：
+   - 相机/机械臂/AGV在线通信
+   - 跨节点时序编排
+3. 框架建议：
+   - C++ 包：`gtest`
+   - Python 包：`pytest`
+
+### 15.2 包级最低单元测试用例
+
+| 功能包 | 最低单元测试（建议） |
+|---|---|
+| `agv_driver` | 到位判定阈值函数、状态码映射函数 |
+| `arm_driver` | 关节限位检查、错误码映射 |
+| `arm_controller` | IK结果筛选、MoveJ目标合法性检查 |
+| `hikvision_driver` | 设备选择逻辑（SN/index）、参数解析与默认值 |
+| `pose_detector` | 位姿估计结果过滤、置信度阈值逻辑 |
+| `path_planner` | 候选点打分函数、不可达点剔除逻辑 |
+| `defect_detector` | 阈值过滤、NMS/后处理结果正确性 |
+| `task_coordinator` | 状态迁移条件与超时处理 |
+| `inspection_interface` | msg/srv 字段兼容性（序列化/反序列化） |
+
+### 15.3 目录与命名约定
+
+1. C++：每个包放 `test/`，文件命名 `test_<module>.cpp`。
+2. Python：每个包放 `tests/`，文件命名 `test_<module>.py`。
+3. 测试函数命名要直接体现行为，例如 `should_reject_unreachable_pose`。
+
+### 15.4 执行命令（单元测试）
+
+```bash
+# 只跑指定包单元测试
+colcon test --packages-select hikvision_driver path_planner task_coordinator --event-handlers console_direct+
+colcon test-result --verbose
+
+# 跑全仓库单元测试
+colcon test --event-handlers console_direct+
+colcon test-result --verbose
+```
+
+### 15.5 验收口径（论文可引用）
+
+1. 每个核心功能包至少有 2-3 个可重复执行的单元测试。
+2. 提交前可运行 `colcon test` 并输出可追溯结果。
+3. 关键算法分支（正常/边界/异常）均有对应测试用例。
