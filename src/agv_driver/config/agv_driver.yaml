@@ -1,21 +1,58 @@
 agv_driver_node:
   ros__parameters:
+    # AGV 控制器 IP 地址
     agv_ip: "127.0.0.1"
+
+    # TCP 协议版本号（通常为 1）
     protocol_version: 1
+
+    # 单次请求超时（毫秒）
     request_timeout_ms: 1000
+
+    # 状态轮询周期（毫秒）
     poll_interval_ms: 200
+
+    # cmd_vel 开环速度持续时间（毫秒）
     cmd_vel_duration_ms: 200
+
+    # 是否发布 map -> base_link TF
     publish_tf: true
+
+    # 接收到零速度 cmd_vel 时是否发送停止开环指令（2000）
     stop_on_zero_cmd_vel: true
+
+    # 世界坐标系 frame_id（应与 AGV 地图坐标一致）
     map_frame_id: "map"
+
+    # AGV 底盘坐标系 frame_id
     base_frame_id: "base_link"
+
+    # 是否启用启动引导流程（控制权/载图/重定位）
     enable_bootstrap: true
+
+    # 是否启用控制权抢占流程（4005/4006/1060）
     enable_control_lock: false
+
+    # 抢占控制权时使用的昵称（nick_name）
     control_nick_name: "inspection_agv_driver"
+
+    # 启动后需要切换加载的地图名；空字符串表示不切图
     initial_map_name: ""
+
+    # 启动后是否自动执行重定位（2002）
     auto_relocate: true
+
+    # 若当前已定位成功（1021=SUCCESS），是否跳过重定位
     skip_reloc_if_localized: true
+
+    # 是否要求执行确认定位接口（2003，老版本兼容）
     require_confirm_loc: false
+
+    # 引导流程整体超时（毫秒）
     bootstrap_timeout_ms: 60000
+
+    # 引导流程状态查询轮询周期（毫秒）
     bootstrap_poll_interval_ms: 500
+
+    # 引导流程失败后重试间隔（毫秒）
     bootstrap_retry_interval_ms: 5000
