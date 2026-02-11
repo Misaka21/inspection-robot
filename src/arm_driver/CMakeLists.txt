@@ -8,11 +8,10 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(std_msgs REQUIRED)
-find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
-find_package(trajectory_msgs REQUIRED)
-find_package(moveit_ros_planning_interface REQUIRED)
+find_package(std_srvs REQUIRED)
+find_package(inspection_interface REQUIRED)
+find_package(elfin_ethercat_driver REQUIRED)
 
 add_executable(arm_driver_node src/arm_driver_node.cpp)
 target_include_directories(arm_driver_node PUBLIC
@@ -22,15 +21,17 @@ target_compile_features(arm_driver_node PUBLIC c_std_99 cxx_std_17)
 ament_target_dependencies(
   arm_driver_node
   "rclcpp"
-  "std_msgs"
-  "geometry_msgs"
   "sensor_msgs"
-  "trajectory_msgs"
-  "moveit_ros_planning_interface"
+  "std_srvs"
+  "inspection_interface"
+  "elfin_ethercat_driver"
 )
 
 install(TARGETS arm_driver_node
   DESTINATION lib/${PROJECT_NAME})
+
+install(DIRECTORY include/
+  DESTINATION include)
 
 install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME})
