@@ -231,14 +231,21 @@ flowchart TB
 **内部结构**：
 ```
 arm_driver/
-├── elfin_core/              # Elfin SDK 原始包
+├── elfin_core/              # Elfin 底层 C/C++ 核心
 │   ├── elfin_ethercat_driver/  # EtherCAT 硬件驱动
-│   ├── elfin_ros_control/      # ROS2 control 硬件接口
-│   ├── elfin_robot_msgs/       # 消息定义
 │   └── soem_ros2/              # EtherCAT 协议栈
+├── config/
+│   └── arm_driver.yaml         # EtherCAT 与关节参数
+├── launch/
+│   └── arm_driver.launch.py
 └── src/
-    └── arm_driver_wrapper.cpp  # 统一接口封装
+    └── arm_driver_node.cpp     # ROS 封装节点（话题/服务）
 ```
+
+说明：
+- `elfin_core` 只放底层驱动能力，不放控制层/规划层逻辑。
+- `soem_ros2` 由 `elfin_ethercat_driver` 在进程内直接调用（`ec_*` API），`arm_driver` 不直接操作 SOEM C API。
+- `elfin_ros_control`、`elfin_robot_msgs` 不在当前 `arm_driver/elfin_core` 移植范围内（避免驱动层职责扩张）。
 
 - **功能**:
   - 封装 EtherCAT 通信协议
@@ -289,6 +296,8 @@ arm_driver/
 ---
 
 ### 6.2 控制层 (Motion Control)
+
+> 注：本节为目标设计；当前仓库中 `arm_controller` 仍是骨架包，接口与目录会按此逐步补齐。
 
 #### **arm_controller** (机械臂运动控制)
 
@@ -354,6 +363,8 @@ arm_driver (硬件接口)
 ---
 
 ### 6.3 算法层 (Perception & Planning)
+
+> 注：本节描述目标能力；当前 `pose_detector/path_planner/defect_detector` 仍在从骨架包向实现迁移。
 
 #### **pose_detector** (位姿检测)
 
@@ -521,26 +532,23 @@ inspection_interface/
 ```
 inspection_bringup/
 ├── launch/
-│   ├── drivers.launch.py       # 启动所有驱动（容器化）
-│   ├── perception.launch.py    # 启动感知算法（容器化）
-│   ├── system.launch.py        # 启动完整系统
-│   └── rviz.launch.py          # 启动可视化
+│   ├── camera_only.launch.py   # 仅启动海康相机（调试）
+│   ├── drivers.launch.py       # 启动当前驱动集合（相机等）
+│   └── system.launch.py        # 启动系统入口（逐步扩展）
 ├── config/
-│   ├── drivers.yaml            # 驱动参数
-│   ├── perception.yaml         # 感知参数
-│   └── inspection.rviz
-└── resource/
-    ├── models/                 # CAD/点云模型
-    └── calibration/            # 标定文件
+│   ├── inspection.yaml         # 通用驱动参数
+│   └── realsense.yaml          # RealSense 参数
+└── package.xml
 ```
 
 **容器化启动示例** (drivers.launch.py):
 ```python
-from launch_ros.actions import ComposableNodeContainer
+from launch import LaunchDescription
+from launch_ros.actions import ComposableNodeContainer, Node
 from launch_ros.descriptions import ComposableNode
 
 def generate_launch_description():
-    container = ComposableNodeContainer(
+    camera_container = ComposableNodeContainer(
         name='driver_container',
         namespace='/inspection',
         package='rclcpp_components',
@@ -552,15 +560,17 @@ def generate_launch_description():
                 name='hikvision_driver_node',
                 namespace='/inspection/hikvision',
             ),
-            ComposableNode(
-                package='arm_driver',
-                plugin='arm_driver::ArmDriverNode',
-                name='arm_driver_node',
-                namespace='/inspection/arm',
-            ),
         ],
     )
-    return LaunchDescription([container])
+
+    arm_driver_node = Node(
+        package='arm_driver',
+        executable='arm_driver_node',
+        name='arm_driver',
+        namespace='/inspection/arm',
+    )
+
+    return LaunchDescription([camera_container, arm_driver_node])
 ```
 
 #### **inspection_supervisor** (状态监控)
@@ -591,13 +601,15 @@ inspection_ws/
 │   │── 驱动层 ────────────────────────────
 │   ├── agv_driver/               # 仙宫AGV驱动
 │   ├── arm_driver/               # 大族机械臂EtherCAT驱动
-│   │   ├── elfin_core/           # Elfin SDK原始包
+│   │   ├── elfin_core/           # Elfin底层C/C++核心
 │   │   │   ├── elfin_ethercat_driver/
-│   │   │   ├── elfin_ros_control/
-│   │   │   ├── elfin_robot_msgs/
 │   │   │   └── soem_ros2/
+│   │   ├── config/
+│   │   │   └── arm_driver.yaml
+│   │   ├── launch/
+│   │   │   └── arm_driver.launch.py
 │   │   └── src/
-│   │       └── arm_driver_wrapper.cpp
+│   │       └── arm_driver_node.cpp
 │   ├── realsense_driver/         # RealSense配置封装
 │   ├── hikvision_driver/         # 海康工业相机驱动
 │   │
@@ -697,12 +709,13 @@ task_coordinator (最顶层，依赖所有)
 
 ```bash
 # 方式1: 分步启动
-ros2 launch inspection_bringup drivers.launch.py      # 驱动容器
-ros2 launch inspection_bringup perception.launch.py   # 算法容器
-ros2 launch task_coordinator coordinator.launch.py    # 协调器
+ros2 launch inspection_bringup drivers.launch.py      # 当前可用驱动集合
+ros2 launch arm_driver arm_driver.launch.py           # 机械臂驱动
 
 # 方式2: 一键启动
 ros2 launch inspection_bringup system.launch.py
+
+# 注：算法层/协调层 launch 文件仍在补齐中
 ```
 
 ## 12. 自定义消息定义
