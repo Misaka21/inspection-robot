@@ -13,15 +13,20 @@ arm_driver/
 ├── elfin_core/
 │   ├── elfin_ethercat_driver/   # 底层 EtherCAT 驱动库
 │   └── soem_ros2/               # SOEM 协议栈
+├── include/
+│   └── arm_driver/
+│       └── arm_driver_node.hpp  # 驱动封装类声明
 ├── src/
-│   └── arm_driver_node.cpp      # ROS 封装节点
+│   ├── arm_driver_node.cpp      # main 入口
+│   ├── arm_driver_node_core.cpp # EtherCAT 核心初始化与换算
+│   └── arm_driver_node_ros.cpp  # ROS 话题/服务封装
 ├── config/
 │   └── arm_driver.yaml          # 参数配置
 └── launch/
     └── arm_driver.launch.py
 ```
 
-说明：`elfin_core` 只放底层 C/C++ 驱动能力。ROS 接口统一在 `src/arm_driver_node.cpp` 封装。
+说明：`elfin_core` 只放底层 C/C++ 驱动能力。ROS 接口实现在 `src/`，并通过 `include/arm_driver/arm_driver_node.hpp` 组织。
 
 ## 功能说明
 
@@ -34,7 +39,8 @@ arm_driver/
 
 节点名和命名空间：
 
-- Node: `arm_driver`
+- Executable: `arm_driver_node`
+- Node Name: `arm_driver`（由 `launch/arm_driver.launch.py` 指定）
 - Namespace: `/inspection/arm`
 
 ### 订阅
@@ -85,7 +91,7 @@ arm_driver/
 
 调用关系是进程内库调用，不是 ROS 话题调用：
 
-1. `arm_driver_node.cpp` 创建 `EtherCatManager`
+1. `arm_driver_node.cpp` 进入 `ArmDriverNode`，在 `src/arm_driver_node_core.cpp` 内创建 `EtherCatManager`
 2. `EtherCatManager` 在 `elfin_ethercat_manager.cpp` 中调用 SOEM C API（`ec_init/ec_config_init/ec_send_processdata/ec_receive_processdata`）
 3. `ElfinEtherCATDriver/ElfinEtherCATClient` 基于 PDO/SDO 读写关节状态与目标
 

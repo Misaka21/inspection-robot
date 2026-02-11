@@ -234,12 +234,17 @@ arm_driver/
 ├── elfin_core/              # Elfin 底层 C/C++ 核心
 │   ├── elfin_ethercat_driver/  # EtherCAT 硬件驱动
 │   └── soem_ros2/              # EtherCAT 协议栈
+├── include/
+│   └── arm_driver/
+│       └── arm_driver_node.hpp # 驱动封装类声明
 ├── config/
 │   └── arm_driver.yaml         # EtherCAT 与关节参数
 ├── launch/
 │   └── arm_driver.launch.py
 └── src/
-    └── arm_driver_node.cpp     # ROS 封装节点（话题/服务）
+    ├── arm_driver_node.cpp      # main 入口
+    ├── arm_driver_node_core.cpp # EtherCAT 核心初始化与换算
+    └── arm_driver_node_ros.cpp  # ROS 话题/服务封装
 ```
 
 说明：
@@ -252,7 +257,8 @@ arm_driver/
   - 发布关节状态（位置、速度、扭矩）
   - 接收关节指令（位置、速度）
   - 提供使能/禁用、故障清除服务
-- **节点**: `arm_driver_node`
+- **可执行文件**: `arm_driver_node`
+- **节点名**: `arm_driver`（由 launch 指定）
 - **命名空间**: `/inspection/arm`
 - **订阅**:
   - `~/joint_cmd` (sensor_msgs/JointState) - 关节指令
@@ -604,12 +610,17 @@ inspection_ws/
 │   │   ├── elfin_core/           # Elfin底层C/C++核心
 │   │   │   ├── elfin_ethercat_driver/
 │   │   │   └── soem_ros2/
+│   │   ├── include/
+│   │   │   └── arm_driver/
+│   │   │       └── arm_driver_node.hpp
 │   │   ├── config/
 │   │   │   └── arm_driver.yaml
 │   │   ├── launch/
 │   │   │   └── arm_driver.launch.py
 │   │   └── src/
-│   │       └── arm_driver_node.cpp
+│   │       ├── arm_driver_node.cpp
+│   │       ├── arm_driver_node_core.cpp
+│   │       └── arm_driver_node_ros.cpp
 │   ├── realsense_driver/         # RealSense配置封装
 │   ├── hikvision_driver/         # 海康工业相机驱动
 │   │
