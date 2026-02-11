@@ -1,0 +1,20 @@
+/**:
+  ros__parameters:
+    sn: ""
+    device_index: 0
+    max_retry_attempts: 3
+    retry_delay_sec: 1.0
+
+    use_mfs_config: false
+    mfs_config_path: ""
+
+    camera_info_url: "package://hikvision_driver/config/camera_info.yaml"
+
+    frame_rate: 30.0
+    exposure_time: 6000.0
+    gain: 15.0
+    digital_shift: 6.0
+
+    use_sensor_data_qos: false
+    use_trigger_mode: false
+    rotate_180: false
