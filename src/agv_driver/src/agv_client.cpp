@@ -55,11 +55,135 @@ std::optional<bool> json_get_bool(const std::string & json, const std::string & 
   return match[1].str() == "true";
 }
 
+std::string json_escape_string(const std::string & raw)
+{
+  std::string escaped;
+  escaped.reserve(raw.size());
+  for (const char ch : raw) {
+    if (ch == '\\' || ch == '\"') {
+      escaped.push_back('\\');
+    }
+    escaped.push_back(ch);
+  }
+  return escaped;
+}
+
 }  // namespace
 
 AgvClient::AgvClient(std::string agv_ip, const uint8_t protocol_version, const int timeout_ms)
 : _transport(std::move(agv_ip), protocol_version, timeout_ms)
 {
+}
+
+bool AgvClient::lock_control(const std::string & nick_name, std::string * error)
+{
+  std::string response;
+  const std::string payload =
+    "{\"nick_name\":\"" + json_escape_string(nick_name) + "\"}";
+  return request(4005U, payload, &response, error);
+}
+
+bool AgvClient::unlock_control(std::string * error)
+{
+  std::string response;
+  return request(4006U, "", &response, error);
+}
+
+bool AgvClient::query_current_lock(
+  bool * locked,
+  std::string * owner_nick_name,
+  std::string * error)
+{
+  std::string response;
+  if (!request(1060U, "", &response, error)) {
+    return false;
+  }
+
+  if (locked != nullptr) {
+    *locked = json_get_bool(response, "locked").value_or(false);
+  }
+
+  if (owner_nick_name != nullptr) {
+    const std::regex re("\\\"nick_name\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"");
+    std::smatch match;
+    if (std::regex_search(response, match, re) && match.size() >= 2U) {
+      *owner_nick_name = match[1].str();
+    } else {
+      owner_nick_name->clear();
+    }
+  }
+
+  return true;
+}
+
+bool AgvClient::load_map(const std::string & map_name, std::string * error)
+{
+  std::string response;
+  const std::string payload =
+    "{\"map_name\":\"" + json_escape_string(map_name) + "\"}";
+  return request(2022U, payload, &response, error);
+}
+
+bool AgvClient::query_loadmap_status(int * loadmap_status, std::string * error)
+{
+  std::string response;
+  if (!request(1022U, "", &response, error)) {
+    return false;
+  }
+
+  const auto status = json_get_int(response, "loadmap_status");
+  if (!status.has_value()) {
+    if (error != nullptr) {
+      *error = "1022 response missing loadmap_status";
+    }
+    return false;
+  }
+
+  if (loadmap_status != nullptr) {
+    *loadmap_status = status.value();
+  }
+
+  return true;
+}
+
+bool AgvClient::start_reloc_auto(std::string * error)
+{
+  std::string response;
+  return request(2002U, "{\"isAuto\":true}", &response, error);
+}
+
+bool AgvClient::cancel_reloc(std::string * error)
+{
+  std::string response;
+  return request(2004U, "", &response, error);
+}
+
+bool AgvClient::confirm_loc(std::string * error)
+{
+  std::string response;
+  return request(2003U, "", &response, error);
+}
+
+bool AgvClient::query_reloc_status(int * reloc_status, std::string * error)
+{
+  std::string response;
+  if (!request(1021U, "", &response, error)) {
+    return false;
+  }
+
+  const auto status = json_get_int(response, "reloc_status");
+  if (!status.has_value()) {
+    if (error != nullptr) {
+      *error = "1021 response missing reloc_status";
+    }
+    return false;
+  }
+
+  if (reloc_status != nullptr) {
+    *reloc_status = status.value();
+  }
+
+  return true;
 }
 
 bool AgvClient::send_goal(const double x, const double y, const double yaw, std::string * error)

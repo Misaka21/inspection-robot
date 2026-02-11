@@ -3,6 +3,7 @@
 #include <cmath>
 #include <memory>
 #include <string>
+#include <thread>
 
 #include "agv_driver/agv_client.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
@@ -20,6 +21,14 @@ namespace
 {
 
 constexpr int TASK_STATUS_ARRIVED = 4;
+constexpr int LOADMAP_STATUS_FAILED = 0;
+constexpr int LOADMAP_STATUS_SUCCESS = 1;
+constexpr int LOADMAP_STATUS_LOADING = 2;
+
+constexpr int RELOC_STATUS_INIT = 0;
+constexpr int RELOC_STATUS_SUCCESS = 1;
+constexpr int RELOC_STATUS_RELOCING = 2;
+constexpr int RELOC_STATUS_COMPLETED_LEGACY = 3;
 
 bool nearly_zero(const double value, const double epsilon = 1e-4)
 {
@@ -62,6 +71,17 @@ public:
     _map_frame_id = declare_parameter<std::string>("map_frame_id", "map");
     _base_frame_id = declare_parameter<std::string>("base_frame_id", "base_link");
 
+    _enable_bootstrap = declare_parameter<bool>("enable_bootstrap", true);
+    _enable_control_lock = declare_parameter<bool>("enable_control_lock", false);
+    _control_nick_name = declare_parameter<std::string>("control_nick_name", "inspection_agv_driver");
+    _initial_map_name = declare_parameter<std::string>("initial_map_name", "");
+    _auto_relocate = declare_parameter<bool>("auto_relocate", true);
+    _skip_reloc_if_localized = declare_parameter<bool>("skip_reloc_if_localized", true);
+    _require_confirm_loc = declare_parameter<bool>("require_confirm_loc", false);
+    _bootstrap_timeout_ms = declare_parameter<int>("bootstrap_timeout_ms", 60000);
+    _bootstrap_poll_interval_ms = declare_parameter<int>("bootstrap_poll_interval_ms", 500);
+    _bootstrap_retry_interval_ms = declare_parameter<int>("bootstrap_retry_interval_ms", 5000);
+
     _agv_client = std::make_unique<AgvClient>(_agv_ip, _protocol_version, _request_timeout_ms);
 
     _goal_sub = create_subscription<geometry_msgs::msg::PoseStamped>(
@@ -96,11 +116,30 @@ public:
       _agv_ip.c_str(),
       _request_timeout_ms,
       _poll_interval_ms);
+
+    try_bootstrap();
+  }
+
+  ~AgvDriverNode() override
+  {
+    if (_enable_control_lock && _agv_client != nullptr) {
+      std::string error;
+      if (!_agv_client->unlock_control(&error)) {
+        RCLCPP_WARN(get_logger(), "unlock control failed on shutdown: %s", error.c_str());
+      }
+    }
   }
 
 private:
   void on_goal_pose(const geometry_msgs::msg::PoseStamped::SharedPtr & msg)
   {
+    if (_enable_bootstrap && !_bootstrap_ready) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "drop goal because bootstrap is not ready");
+      return;
+    }
+
     const double yaw = yaw_from_quaternion(msg->pose.orientation);
 
     std::string error;
@@ -156,6 +195,10 @@ private:
 
   void on_poll_timer()
   {
+    if (_enable_bootstrap && !_bootstrap_ready) {
+      try_bootstrap();
+    }
+
     AgvPollState current_state;
     std::string error;
 
@@ -175,6 +218,208 @@ private:
     }
 
     publish_outputs(_last_state);
+  }
+
+  void try_bootstrap()
+  {
+    if (!_enable_bootstrap || _bootstrap_ready) {
+      _bootstrap_ready = true;
+      return;
+    }
+
+    const auto now_time = now();
+    if (_has_bootstrap_try) {
+      const auto elapsed_ns = (now_time - _last_bootstrap_try_time).nanoseconds();
+      const auto retry_ns = static_cast<int64_t>(_bootstrap_retry_interval_ms) * 1000000LL;
+      if (elapsed_ns < retry_ns) {
+        return;
+      }
+    }
+
+    _has_bootstrap_try = true;
+    _last_bootstrap_try_time = now_time;
+
+    std::string error;
+    if (bootstrap_once(&error)) {
+      _bootstrap_ready = true;
+      _bootstrap_error.clear();
+      RCLCPP_INFO(get_logger(), "bootstrap finished");
+      return;
+    }
+
+    _bootstrap_ready = false;
+    _bootstrap_error = error;
+    RCLCPP_WARN(get_logger(), "bootstrap failed: %s", error.c_str());
+  }
+
+  bool bootstrap_once(std::string * error)
+  {
+    if (_agv_client == nullptr) {
+      if (error != nullptr) {
+        *error = "agv client is null";
+      }
+      return false;
+    }
+
+    if (_enable_control_lock) {
+      bool locked = false;
+      std::string owner;
+      std::string lock_error;
+      if (!_agv_client->query_current_lock(&locked, &owner, &lock_error)) {
+        if (error != nullptr) {
+          *error = "query lock failed: " + lock_error;
+        }
+        return false;
+      }
+
+      if (!locked || owner != _control_nick_name) {
+        if (!_agv_client->lock_control(_control_nick_name, &lock_error)) {
+          if (error != nullptr) {
+            *error = "lock control failed: " + lock_error;
+          }
+          return false;
+        }
+      }
+    }
+
+    if (!_initial_map_name.empty()) {
+      std::string map_error;
+      if (!_agv_client->load_map(_initial_map_name, &map_error)) {
+        if (error != nullptr) {
+          *error = "load map failed: " + map_error;
+        }
+        return false;
+      }
+    }
+
+    if (!wait_loadmap_ready(error)) {
+      return false;
+    }
+
+    if (!_auto_relocate) {
+      return true;
+    }
+
+    int reloc_status = RELOC_STATUS_INIT;
+    if (!_agv_client->query_reloc_status(&reloc_status, error)) {
+      return false;
+    }
+
+    if (_skip_reloc_if_localized && reloc_status == RELOC_STATUS_SUCCESS) {
+      return true;
+    }
+
+    std::string reloc_error;
+    if (!_agv_client->start_reloc_auto(&reloc_error)) {
+      if (error != nullptr) {
+        *error = "start reloc failed: " + reloc_error;
+      }
+      return false;
+    }
+
+    if (!wait_reloc_ready(error)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  bool wait_loadmap_ready(std::string * error)
+  {
+    const auto deadline = now() + rclcpp::Duration::from_seconds(_bootstrap_timeout_ms / 1000.0);
+
+    while (rclcpp::ok()) {
+      int status = LOADMAP_STATUS_LOADING;
+      std::string status_error;
+      if (!_agv_client->query_loadmap_status(&status, &status_error)) {
+        if (error != nullptr) {
+          *error = "query loadmap status failed: " + status_error;
+        }
+        return false;
+      }
+
+      if (status == LOADMAP_STATUS_SUCCESS) {
+        return true;
+      }
+
+      if (status == LOADMAP_STATUS_FAILED) {
+        if (error != nullptr) {
+          *error = "loadmap status failed";
+        }
+        return false;
+      }
+
+      if (now() > deadline) {
+        if (error != nullptr) {
+          *error = "wait loadmap status timeout";
+        }
+        return false;
+      }
+
+      std::this_thread::sleep_for(std::chrono::milliseconds(_bootstrap_poll_interval_ms));
+    }
+
+    if (error != nullptr) {
+      *error = "wait loadmap interrupted";
+    }
+    return false;
+  }
+
+  bool wait_reloc_ready(std::string * error)
+  {
+    const auto deadline = now() + rclcpp::Duration::from_seconds(_bootstrap_timeout_ms / 1000.0);
+
+    while (rclcpp::ok()) {
+      int status = RELOC_STATUS_INIT;
+      std::string status_error;
+      if (!_agv_client->query_reloc_status(&status, &status_error)) {
+        if (error != nullptr) {
+          *error = "query reloc status failed: " + status_error;
+        }
+        return false;
+      }
+
+      if (status == RELOC_STATUS_SUCCESS) {
+        return true;
+      }
+
+      if (status == RELOC_STATUS_COMPLETED_LEGACY) {
+        if (_require_confirm_loc) {
+          std::string confirm_error;
+          if (!_agv_client->confirm_loc(&confirm_error)) {
+            if (error != nullptr) {
+              *error = "confirm reloc failed: " + confirm_error;
+            }
+            return false;
+          }
+        } else {
+          return true;
+        }
+      }
+
+      if (status != RELOC_STATUS_INIT && status != RELOC_STATUS_RELOCING &&
+        status != RELOC_STATUS_COMPLETED_LEGACY)
+      {
+        if (error != nullptr) {
+          *error = "unexpected reloc status=" + std::to_string(status);
+        }
+        return false;
+      }
+
+      if (now() > deadline) {
+        if (error != nullptr) {
+          *error = "wait reloc status timeout";
+        }
+        return false;
+      }
+
+      std::this_thread::sleep_for(std::chrono::milliseconds(_bootstrap_poll_interval_ms));
+    }
+
+    if (error != nullptr) {
+      *error = "wait reloc interrupted";
+    }
+    return false;
   }
 
   void publish_outputs(const AgvPollState & state)
@@ -250,6 +495,12 @@ private:
 
   std::string map_error_code(const AgvPollState & state) const
   {
+    if (_enable_bootstrap && !_bootstrap_ready) {
+      if (_bootstrap_error.empty()) {
+        return "BOOTSTRAP_PENDING";
+      }
+      return "BOOTSTRAP_FAILED";
+    }
     if (!state.connected) {
       return "DISCONNECTED";
     }
@@ -277,6 +528,22 @@ private:
   bool _stop_on_zero_cmd_vel = true;
   std::string _map_frame_id = "map";
   std::string _base_frame_id = "base_link";
+
+  bool _enable_bootstrap = true;
+  bool _enable_control_lock = false;
+  std::string _control_nick_name = "inspection_agv_driver";
+  std::string _initial_map_name;
+  bool _auto_relocate = true;
+  bool _skip_reloc_if_localized = true;
+  bool _require_confirm_loc = false;
+  int _bootstrap_timeout_ms = 60000;
+  int _bootstrap_poll_interval_ms = 500;
+  int _bootstrap_retry_interval_ms = 5000;
+
+  bool _bootstrap_ready = false;
+  bool _has_bootstrap_try = false;
+  rclcpp::Time _last_bootstrap_try_time;
+  std::string _bootstrap_error;
 
   std::unique_ptr<AgvClient> _agv_client;
 

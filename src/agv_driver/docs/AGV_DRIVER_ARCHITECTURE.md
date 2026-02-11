@@ -45,6 +45,9 @@ Node 不直接处理 socket 和协议编解码。
 ### 3.2 `agv_client`（语义层）
 
 - 对外提供：
+  - `lock_control` / `unlock_control` / `query_current_lock`
+  - `load_map` / `query_loadmap_status`
+  - `start_reloc_auto` / `query_reloc_status` / `confirm_loc`(可选)
   - `send_goal`
   - `send_open_loop_motion`
   - `stop_open_loop_motion`
@@ -85,3 +88,15 @@ Node 不直接处理 socket 和协议编解码。
 - Node 文件长度显著下降，便于维护。
 - 协议改动只影响 `agv_transport`，业务改动只影响 `agv_client`。
 - 保持少层级（3 层）同时避免“巨石 Node”。
+
+## 7. 启动流程（按 API 使用教程）
+
+`agv_driver_node` 支持启动期 bootstrap（可参数开关）：
+
+1. 可选抢占控制权：`4005`（并可查询 `1060`）
+2. 可选切图：`2022`
+3. 等待地图载入成功：轮询 `1022`
+4. 自动重定位：`2002`
+5. 等待定位完成：轮询 `1021`
+6. 老版本可选确认定位：`2003`（`require_confirm_loc=true` 时）
+7. bootstrap 完成后才放行 `~/goal_pose -> 3051`

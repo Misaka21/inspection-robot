@@ -39,6 +39,18 @@ class AgvClient
 public:
   AgvClient(std::string agv_ip, uint8_t protocol_version, int timeout_ms);
 
+  bool lock_control(const std::string & nick_name, std::string * error);
+  bool unlock_control(std::string * error);
+  bool query_current_lock(bool * locked, std::string * owner_nick_name, std::string * error);
+
+  bool load_map(const std::string & map_name, std::string * error);
+  bool query_loadmap_status(int * loadmap_status, std::string * error);
+
+  bool start_reloc_auto(std::string * error);
+  bool cancel_reloc(std::string * error);
+  bool confirm_loc(std::string * error);
+  bool query_reloc_status(int * reloc_status, std::string * error);
+
   bool send_goal(double x, double y, double yaw, std::string * error);
   bool send_open_loop_motion(double vx, double vy, double w, int duration_ms, std::string * error);
   bool stop_open_loop_motion(std::string * error);

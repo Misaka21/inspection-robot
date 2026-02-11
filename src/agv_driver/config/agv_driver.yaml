@@ -9,3 +9,13 @@ agv_driver_node:
     stop_on_zero_cmd_vel: true
     map_frame_id: "map"
     base_frame_id: "base_link"
+    enable_bootstrap: true
+    enable_control_lock: false
+    control_nick_name: "inspection_agv_driver"
+    initial_map_name: ""
+    auto_relocate: true
+    skip_reloc_if_localized: true
+    require_confirm_loc: false
+    bootstrap_timeout_ms: 60000
+    bootstrap_poll_interval_ms: 500
+    bootstrap_retry_interval_ms: 5000
