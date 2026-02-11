@@ -13,7 +13,11 @@ find_package(std_srvs REQUIRED)
 find_package(inspection_interface REQUIRED)
 find_package(elfin_ethercat_driver REQUIRED)
 
-add_executable(arm_driver_node src/arm_driver_node.cpp)
+add_executable(arm_driver_node
+  src/arm_driver_node.cpp
+  src/arm_driver_node_core.cpp
+  src/arm_driver_node_ros.cpp
+)
 target_include_directories(arm_driver_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
