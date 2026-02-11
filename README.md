@@ -836,3 +836,16 @@ colcon test-result --verbose
 1. 每个核心功能包至少有 2-3 个可重复执行的单元测试。
 2. 提交前可运行 `colcon test` 并输出可追溯结果。
 3. 关键算法分支（正常/边界/异常）均有对应测试用例。
+
+## 16. 代码规范执行规则
+
+本项目所有 C/C++ 代码统一遵循工作区根目录规则文件：
+
+1. 格式化规则：`/Users/david/Documents/Huorui/Curriculums/大四下/000 毕业设计/graduation_project_ws/.clang-format`
+2. 静态检查规则：`/Users/david/Documents/Huorui/Curriculums/大四下/000 毕业设计/graduation_project_ws/.clang-tidy`
+
+新增强制命名规则：
+
+1. `class` 的 `private` 成员变量必须以下划线 `_` 开头。
+2. 推荐示例：`_camera_handle`、`_frame_id`、`_retry_count`。
+3. 不符合示例：`camera_handle`、`mCameraHandle`、`cameraHandle`。
