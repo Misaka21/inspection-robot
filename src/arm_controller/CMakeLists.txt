@@ -10,9 +10,11 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 find_package(trajectory_msgs REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
 find_package(inspection_interface REQUIRED)
+find_package(std_srvs REQUIRED)
 
 add_executable(arm_controller_node src/arm_controller_node.cpp)
 target_include_directories(arm_controller_node PUBLIC
@@ -24,9 +26,11 @@ ament_target_dependencies(
   "rclcpp"
   "std_msgs"
   "geometry_msgs"
+  "sensor_msgs"
   "trajectory_msgs"
   "moveit_ros_planning_interface"
   "inspection_interface"
+  "std_srvs"
 )
 
 install(TARGETS arm_controller_node

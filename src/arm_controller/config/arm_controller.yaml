@@ -1,0 +1,20 @@
+/**:
+  ros__parameters:
+    planning_group: "elfin_arm"
+    planning_frame: "world"
+    planning_time: 5.0
+
+    # MoveIt speed scaling (0~1). Can be overridden per request or via ~/velocity_scaling.
+    velocity_scaling: 0.5
+    acceleration_scaling: 0.5
+
+    # Execution strategy: stream each trajectory point as joint_cmd, or only publish the final point.
+    stream_trajectory: true
+
+    # arm_driver expects a JointState command on its joint_cmd topic.
+    # NOTE: arm_driver uses node-private name (~/joint_cmd), so the default includes node name.
+    arm_driver_joint_cmd_topic: "/inspection/arm/arm_driver/joint_cmd"
+
+    # Optional: auto-enable arm_driver before executing.
+    auto_enable_driver: false
+    arm_driver_enable_service: "/inspection/arm/arm_driver/enable"
