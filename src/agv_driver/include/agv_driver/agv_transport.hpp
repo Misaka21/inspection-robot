@@ -17,6 +17,8 @@ public:
   AgvTransport(std::string agv_ip, uint8_t protocol_version, int timeout_ms);
   ~AgvTransport();
 
+  void set_log_io(bool enabled, size_t max_chars);
+
   bool request(
     uint16_t cmd_type,
     const std::string & json_payload,
@@ -58,6 +60,9 @@ private:
   std::mutex _socket_mutex;
   std::unordered_map<uint16_t, int> _socket_by_port;
   uint16_t _seq = 1U;
+
+  bool _log_io = false;
+  size_t _log_io_max_chars = 0U;
 };
 
 }  // namespace agv_driver

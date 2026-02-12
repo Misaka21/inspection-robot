@@ -6,10 +6,15 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <algorithm>
+#include <chrono>
 #include <cerrno>
 #include <cstring>
 #include <optional>
 #include <regex>
+#include <string>
+
+#include <rclcpp/logging.hpp>
 
 namespace agv_driver
 {
@@ -18,6 +23,14 @@ namespace
 
 constexpr uint8_t PROTOCOL_SYNC = 0x5A;
 constexpr size_t PROTOCOL_HEADER_SIZE = 16U;
+
+std::string trim_for_log(const std::string & input, const size_t max_chars)
+{
+  if (max_chars == 0U || input.size() <= max_chars) {
+    return input;
+  }
+  return input.substr(0, max_chars) + "...(truncated, total=" + std::to_string(input.size()) + ")";
+}
 
 std::optional<int> json_get_int(const std::string & json, const std::string & key)
 {
@@ -46,12 +59,20 @@ AgvTransport::~AgvTransport()
   close_all();
 }
 
+void AgvTransport::set_log_io(const bool enabled, const size_t max_chars)
+{
+  std::lock_guard<std::mutex> lock(_socket_mutex);
+  _log_io = enabled;
+  _log_io_max_chars = max_chars;
+}
+
 bool AgvTransport::request(
   const uint16_t cmd_type,
   const std::string & json_payload,
   std::string * response,
   std::string * error)
 {
+  const auto start_time = std::chrono::steady_clock::now();
   const auto port = resolve_port(cmd_type);
   if (!port.has_value()) {
     if (error != nullptr) {
@@ -60,6 +81,7 @@ bool AgvTransport::request(
     return false;
   }
 
+  const auto logger = rclcpp::get_logger("agv_transport");
   std::lock_guard<std::mutex> lock(_socket_mutex);
 
   int socket_fd = -1;
@@ -69,6 +91,16 @@ bool AgvTransport::request(
 
   const uint16_t seq = _seq++;
   const auto packet = encode_request_packet(_protocol_version, seq, cmd_type, json_payload);
+
+  if (_log_io) {
+    RCLCPP_INFO(
+      logger,
+      "AGV >> cmd=%u port=%u seq=%u payload=%s",
+      static_cast<unsigned>(cmd_type),
+      static_cast<unsigned>(port.value()),
+      static_cast<unsigned>(seq),
+      trim_for_log(json_payload, _log_io_max_chars).c_str());
+  }
 
   if (!send_all(socket_fd, packet.data(), packet.size(), error)) {
     close_socket_locked(port.value());
@@ -101,6 +133,21 @@ bool AgvTransport::request(
 
   if (response != nullptr) {
     *response = body;
+  }
+
+  if (_log_io) {
+    const auto elapsed_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_time).count();
+    const int ret_code_value = json_get_int(body, "ret_code").value_or(-1);
+    RCLCPP_INFO(
+      logger,
+      "AGV << cmd=%u port=%u seq=%u ret_code=%d cost_ms=%ld body=%s",
+      static_cast<unsigned>(cmd_type),
+      static_cast<unsigned>(port.value()),
+      static_cast<unsigned>(header.seq),
+      ret_code_value,
+      static_cast<long>(elapsed_ms),
+      trim_for_log(body, _log_io_max_chars).c_str());
   }
 
   const auto ret_code = json_get_int(body, "ret_code");

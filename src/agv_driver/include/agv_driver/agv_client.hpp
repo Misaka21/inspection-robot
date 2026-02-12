@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -38,6 +39,8 @@ class AgvClient
 {
 public:
   AgvClient(std::string agv_ip, uint8_t protocol_version, int timeout_ms);
+
+  void set_log_io(bool enabled, size_t max_chars);
 
   bool lock_control(const std::string & nick_name, std::string * error);
   bool unlock_control(std::string * error);

@@ -248,7 +248,23 @@ agv_ready = connected && arrived && stopped && (error_code == "OK")
 4. `stopped` 判断异常：
    - 检查 `1005 is_stop` 和速度字段返回格式
 
-## 10. 相关文档
+## 10. 日志与抓包（排障建议）
+
+本包默认只输出高层日志（启动、下发 goal、bootstrap 结果、轮询失败等）。
+
+如果你需要看到“发送什么 / 收到什么”，可以打开 IO 日志：
+
+- 参数：`log_io=true`
+- 参数：`log_io_max_chars=2048`（按需调整）
+
+开启后会输出类似：
+
+```text
+AGV >> cmd=3051 port=19206 seq=12 payload=...
+AGV << cmd=3051 port=19206 seq=12 ret_code=0 cost_ms=8 body=...
+```
+
+## 11. 相关文档
 
 - 架构说明：`docs/AGV_DRIVER_ARCHITECTURE.md`
 - API 筛选：`docs/AGV_API_SELECTION.md`

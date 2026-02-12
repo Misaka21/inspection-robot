@@ -56,3 +56,9 @@ agv_driver_node:
 
     # 引导流程失败后重试间隔（毫秒）
     bootstrap_retry_interval_ms: 5000
+
+    # 是否输出 AGV TCP 请求/响应日志（会比较刷屏，建议仅排障时开启）
+    log_io: false
+
+    # 请求/响应日志最大输出字符数（超出会截断）
+    log_io_max_chars: 2048

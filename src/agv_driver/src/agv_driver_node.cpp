@@ -82,7 +82,11 @@ public:
     _bootstrap_poll_interval_ms = declare_parameter<int>("bootstrap_poll_interval_ms", 500);
     _bootstrap_retry_interval_ms = declare_parameter<int>("bootstrap_retry_interval_ms", 5000);
 
+    const bool log_io = declare_parameter<bool>("log_io", false);
+    const int log_io_max_chars = declare_parameter<int>("log_io_max_chars", 2048);
+
     _agv_client = std::make_unique<AgvClient>(_agv_ip, _protocol_version, _request_timeout_ms);
+    _agv_client->set_log_io(log_io, static_cast<size_t>(std::max(0, log_io_max_chars)));
 
     _goal_sub = create_subscription<geometry_msgs::msg::PoseStamped>(
       "~/goal_pose", 10,

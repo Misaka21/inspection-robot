@@ -75,6 +75,11 @@ AgvClient::AgvClient(std::string agv_ip, const uint8_t protocol_version, const i
 {
 }
 
+void AgvClient::set_log_io(const bool enabled, const size_t max_chars)
+{
+  _transport.set_log_io(enabled, max_chars);
+}
+
 bool AgvClient::lock_control(const std::string & nick_name, std::string * error)
 {
   std::string response;
