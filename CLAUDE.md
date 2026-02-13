@@ -40,6 +40,20 @@ ros2 launch inspection_bringup drivers.launch.py
 ros2 launch inspection_bringup system.launch.py
 ```
 
+## 代码规范
+
+**重要：私有成员变量必须以下划线 `_` 开头，禁止使用 `_` 结尾**
+
+```cpp
+// ✅ 正确
+int _count;
+rclcpp::Publisher::SharedPtr _pub;
+
+// ❌ 错误
+int count_;
+rclcpp::Publisher::SharedPtr pub_;
+```
+
 ## Launch 文件规范
 
 参考 rm_bringup 和 radar_bringup 的设计：

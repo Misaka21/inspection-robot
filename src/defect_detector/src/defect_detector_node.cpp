@@ -13,14 +13,14 @@ public:
         RCLCPP_INFO(this->get_logger(), "Starting Defect Detector Node");
 
         // 订阅工业相机图像
-        image_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
+        _image_sub = this->create_subscription<sensor_msgs::msg::Image>(
             "/inspection/hikvision/image_raw", 10,
             [this](const sensor_msgs::msg::Image::SharedPtr msg) {
                 process_image(msg);
             });
 
         // 发布检测结果
-        result_pub_ = this->create_publisher<inspection_interface::msg::DefectInfo>(
+        _result_pub = this->create_publisher<inspection_interface::msg::DefectInfo>(
             "~/result", 10);
 
         // 声明参数
@@ -28,7 +28,7 @@ public:
         this->declare_parameter("nms_threshold", 0.5);
 
         // 创建服务
-        detect_srv_ = this->create_service<std_srvs::srv::Trigger>(
+        _detect_srv = this->create_service<std_srvs::srv::Trigger>(
             "~/detect_defect",
             [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                    std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
@@ -51,12 +51,12 @@ private:
         result.defect_id = 0;
         result.defect_type = "none";
         result.confidence = 0.0;
-        result_pub_->publish(result);
+        _result_pub->publish(result);
     }
 
-    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
-    rclcpp::Publisher<inspection_interface::msg::DefectInfo>::SharedPtr result_pub_;
-    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr detect_srv_;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr _image_sub;
+    rclcpp::Publisher<inspection_interface::msg::DefectInfo>::SharedPtr _result_pub;
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr _detect_srv;
 };
 
 }  // namespace defect_detector

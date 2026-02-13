@@ -14,23 +14,23 @@ public:
         RCLCPP_INFO(this->get_logger(), "Starting Path Planner Node");
 
         // 订阅工件位姿
-        workpiece_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+        __workpiece_posesub = this->create_subscription<geometry_msgs::msg::PoseStamped>(
             "/inspection/perception/detected_pose", 10,
             [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
-                workpiece_pose_ = *msg;
-                has_workpiece_pose_ = true;
+                _workpiece_pose = *msg;
+                _has_workpiece_pose = true;
             });
 
         // 订阅 AGV 当前位姿
-        agv_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+        __agv_posesub = this->create_subscription<geometry_msgs::msg::PoseStamped>(
             "/inspection/agv/current_pose", 10,
             [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
-                agv_pose_ = *msg;
-                has_agv_pose_ = true;
+                _agv_pose = *msg;
+                _has_agv_pose = true;
             });
 
         // 发布规划路径
-        path_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>(
+        _path_pub = this->create_publisher<geometry_msgs::msg::PoseArray>(
             "~/path", 10);
 
         // 声明参数
@@ -41,7 +41,7 @@ public:
         this->declare_parameter("candidate_yaw_step_deg", 15.0);
 
         // 创建服务
-        optimize_srv_ = this->create_service<std_srvs::srv::Trigger>(
+        _optimize_srv = this->create_service<std_srvs::srv::Trigger>(
             "~/optimize",
             [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                    std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
@@ -54,7 +54,7 @@ public:
     }
 
     void plan() {
-        if (!has_workpiece_pose_ || !has_agv_pose_) {
+        if (!_has_workpiece_pose || !_has_agv_pose) {
             RCLCPP_WARN(this->get_logger(), "Missing workpiece or AGV pose");
             return;
         }
@@ -70,15 +70,15 @@ public:
     }
 
 private:
-    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr workpiece_pose_sub_;
-    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr agv_pose_sub_;
-    rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr path_pub_;
-    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr optimize_srv_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr __workpiece_posesub;
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr __agv_posesub;
+    rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr _path_pub;
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr _optimize_srv;
 
-    geometry_msgs::msg::PoseStamped workpiece_pose_;
-    geometry_msgs::msg::PoseStamped agv_pose_;
-    bool has_workpiece_pose_ = false;
-    bool has_agv_pose_ = false;
+    geometry_msgs::msg::PoseStamped _workpiece_pose;
+    geometry_msgs::msg::PoseStamped _agv_pose;
+    bool _has_workpiece_pose = false;
+    bool _has_agv_pose = false;
 };
 
 }  // namespace path_planner
