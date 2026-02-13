@@ -10,9 +10,6 @@
 
 ```text
 arm_driver/
-├── elfin_core/
-│   ├── elfin_ethercat_driver/   # 底层 EtherCAT 驱动库
-│   └── soem_ros2/               # SOEM 协议栈
 ├── include/
 │   └── arm_driver/
 │       └── arm_driver_node.hpp  # 驱动封装类声明
@@ -26,7 +23,9 @@ arm_driver/
     └── arm_driver.launch.py
 ```
 
-说明：`elfin_core` 只放底层 C/C++ 驱动能力。ROS 接口实现在 `src/`，并通过 `include/arm_driver/arm_driver_node.hpp` 组织。
+依赖包（位于 `src/` 目录）：
+- `elfin_ethercat_driver` - 底层 EtherCAT 驱动库
+- `soem_ros2` - SOEM 协议栈
 
 ## 功能说明
 
@@ -120,10 +119,16 @@ ros2 launch arm_driver arm_driver.launch.py \
 
 ## 构建
 
-在工作空间根目录（包含 `inspection-robot/src`）执行：
+colcon 会自动按依赖顺序构建，无需手动指定包顺序：
 
 ```bash
-colcon build --packages-select soem_ros2 elfin_ethercat_driver arm_driver
+colcon build
+```
+
+或单独构建：
+
+```bash
+colcon build --packages-select arm_driver
 ```
 
 ## 与控制层的边界
