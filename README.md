@@ -1,157 +1,101 @@
-# 基于移动协作机械臂的大型工件视觉检测系统
+# inspection-robot
 
-## 1. 项目背景
+机器人端 ROS 2 工作空间：包含 AGV/机械臂/相机驱动，以及规划/感知/协调等包的工程骨架。上位机侧的“任务/计划/状态”语义以 `inspection-api` 为准，本仓库负责把设备能力封装为 ROS 2 接口并在机器人端落地执行。
 
-在航空制造领域，飞机机翼表面缺陷检测、发动机装配确认等质检任务面临显著挑战。传统固定式AOI设备检测范围有限，无法对大型工件进行全覆盖检测，且设备部署位置固定，难以适应不同检测角度需求。本项目拟开发一套移动式视觉检测系统，通过AGV与协作机械臂的集成，实现大型工件的灵活多角度检测。
+## 1. 当前阶段的约束（很重要）
 
-## 2. 系统组成
+1. **API 优先级（从高到低）**
+   - `inspection-api/proto/inspection_gateway.proto`：上位机与机器人之间的对外契约（算法与上位机以此为准）
+   - `inspection_interface`：机器人内部 ROS2 msg/srv（对齐网关语义）
+   - 设备厂商协议（AGV TCP API/相机 SDK）：只允许在各自 `*_driver` 内部使用
+2. **坐标系约定**
+   - AGV 的导航目标使用地图坐标系（默认 `map`）。
+   - 具体输入校验与边界条件以实现为准（见 `src/agv_driver/README.md`）。
+3. **命名空间约定**
+   - 建议所有节点运行在 `/inspection/*` 下；节点内部优先使用相对话题名 `~/`，避免硬编码绝对话题名。
 
-本系统由以下硬件构成：
-- 仙宫智能AGV（移动平台，具备SLAM导航）
-- 大族E05协作机械臂（6自由度）
-- Intel RealSense深度相机（末端安装）
-- 海康工业相机（末端安装）
+## 2. 环境与构建
 
-## 3. 环境要求
+- Ubuntu 22.04
+- ROS 2 Humble
+- GCC 11+（C++17）
+- Python 3.10+
 
-- **操作系统**: Ubuntu 22.04 (Jammy Jellyfish)
-- **ROS版本**: ROS 2 Humble
-- **编译器**: GCC 11+ (C++17)
-- **Python**: 3.10+
+构建（在 `inspection-robot/` 目录）：
 
-### 依赖库
-
-| 类型 | 依赖 |
-|-----|------|
-| ROS2 核心 | rclcpp, sensor_msgs, geometry_msgs, nav_msgs, tf2_ros |
-| 点云处理 | PCL, Open3D |
-| 图像处理 | OpenCV 4.x |
-| 深度学习 | ONNX Runtime / TensorRT |
-| 数学库 | Eigen3 |
-
-## 4. 技术方案
-
-### 4.1 工件定位
-
-AGV运动至检测起始点后，深度相机对目标工件进行扫描。通过6D位姿估计算法获取工件在相机坐标系下的空间位姿，并将该位姿数据转换至AGV的SLAM全局坐标系，完成工件在地图中的定位注册。
-
-### 4.2 检测点规划
-
-上位机加载待检工件的CAD模型。操作人员在模型上标注待检测区域后，系统基于以下约束自动计算检测路径：
-- AGV在SLAM地图中的目标位置
-- 机械臂末端的目标位姿
-- 相机视野覆盖范围
-- 碰撞避免约束
-
-### 4.3 协同执行
-
-系统驱动AGV按规划路径移动至各检测位置。到达后，机械臂调整末端姿态，使工业相机正对检测区域并触发拍摄。采集的图像用于后续缺陷分析。
-
-### 4.4 联合站位与逆解求解（核心方法）
-
-本项目采用“AGV站位 + 机械臂逆解”的联合求解，而不是将两者完全解耦。
-
-#### 4.4.1 差速底盘状态与控制
-
-- 底盘在地图中的状态为 `x, y, yaw`（平面位姿）
-- 底盘可直接控制输入为 `v, w`（线速度、角速度）
-- 运动学约束：
-
-```math
-\dot{x} = v\cos(yaw),\quad
-\dot{y} = v\sin(yaw),\quad
-\dot{yaw}=w
+```bash
+colcon build --symlink-install
+source install/setup.bash
 ```
 
-说明：差速底盘不能侧向平移，但 `y` 仍是全局位姿状态量。
+## 3. 启动方式
 
-#### 4.4.2 联合求解目标
+驱动集合（优先用 bringup 统一启动）：
 
-对每个检测点，联合搜索 AGV 目标点位 `b=(x,y,yaw)` 与机械臂关节解 `q`：
-
-```math
-\min_{b,q} J=
-w_1\|b-b_{prev}\|^2+
-w_2\|q-q_{prev}\|^2+
-w_3\frac{1}{m(q)+\epsilon}+
-w_4E_{view}+
-w_5E_{limit}
+```bash
+ros2 launch inspection_bringup drivers.launch.py
 ```
 
-其中：
-- `m(q)` 为可操作度（manipulability）
-- `E_view` 为相机视角误差
-- `E_limit` 为关节逼近限位惩罚
+一键启动（逐步补齐中）：
 
-约束条件：
-- `q` 必须是目标 TCP 位姿的 IK 可行解
-- 关节限位、速度限位满足约束
-- AGV 点位可通行
-- `MoveJ` 插值路径无碰撞
-
-#### 4.4.3 位姿链计算
-
-1. 由 CAD 标注点和法向构造目标相机位姿 `T_map_cam*`
-2. 对每个候选 AGV 点位 `b_i`，计算对应 TCP 目标：
-
-```math
-T_{arm\_base}^{tcp}(i)=
-\left(T_{map}^{base}(b_i)\,T_{base}^{arm\_base}\right)^{-1}
-\,T_{map}^{cam*}\,
-\left(T_{tcp}^{cam}\right)^{-1}
+```bash
+ros2 launch inspection_bringup system.launch.py
 ```
 
-3. 对 `T_arm_base_tcp(i)` 求逆解（TRAC-IK/IKFast/MoveIt2 IK）
-4. 对所有可行 `(b_i, q_i)` 进行代价评估并选最优
+单包启动（调试/联调时常用）：
 
-#### 4.4.4 AGV 点位给定方式
-
-- AGV 自带 SLAM，ROS2 侧只下发 `map` 坐标系目标位姿（`x,y,yaw`）
-- 建议消息类型：`geometry_msgs/PoseStamped`，`frame_id="map"`
-- 第一阶段采用“离线站位库 + 在线筛选”：
-  - 离线：围绕工件预设一组候选站位
-  - 在线：结合当前工件位姿、IK可达性、碰撞与代价函数选择最优站位
-
-#### 4.4.5 执行闭环
-
-```text
-for each inspection point:
-  1) 计算并选择最优 (agv_goal, arm_goal)
-  2) 下发 AGV 到 agv_goal
-  3) 等待 arrived=true 且 stopped=true
-  4) 机械臂 MoveJ 到 arm_goal
-  5) 触发工业相机拍照
-  6) 记录检测结果并进入下一点
+```bash
+ros2 launch agv_driver agv_driver.launch.py
+ros2 launch arm_driver arm_driver.launch.py
+ros2 launch hikvision_driver hikvision_driver.launch.py
+ros2 launch arm_controller arm_controller.launch.py
 ```
 
-该方法兼顾可实现性与论文创新性：在差速底盘约束下，实现检测质量驱动的“移动底盘-机械臂”联合优化。
+bringup 是统一启动入口；单包 launch 默认读取包内 `config/*.yaml`。如需复用 bringup 的配置，直接在 launch 里传 `params_file:=/absolute/path/to/*.yaml`。
 
-## 5. 系统架构
+## 4. 功能包索引（以实现为准）
+
+| 包 | 职责一句话 | 说明文档 |
+|---|---|---|
+| `agv_driver` | AGV 底盘 TCP 驱动：`goal_pose/cmd_vel` -> TCP，下发导航并发布状态 | `src/agv_driver/README.md` |
+| `arm_driver` | 机械臂 EtherCAT 驱动：关节指令/状态与使能等服务 | `src/arm_driver/README.md` |
+| `realsense_driver` | vendoring 官方 `realsense2_camera` 并提供 bringup 配置 | `src/realsense_driver/README.md` |
+| `hikvision_driver` | 海康工业相机驱动（持续补齐中） |（待补齐 README） |
+| `arm_controller` | 机械臂控制层（MoveIt2/IK 等，持续补齐中） |（待补齐 README） |
+| `pose_detector` | 工件 6D 位姿检测（持续补齐中） |（待补齐 README） |
+| `path_planner` | 联合站位/IK 的规划（持续补齐中） |（待补齐 README） |
+| `defect_detector` | 缺陷检测（持续补齐中） |（待补齐 README） |
+| `task_coordinator` | 任务编排/状态机（持续补齐中） |（待补齐 README） |
+| `inspection_interface` | 机器人内部 msg/srv 定义（对齐网关语义） | `src/inspection_interface/msg`、`src/inspection_interface/srv` |
+| `inspection_bringup` | launch/配置统一入口 | `src/inspection_bringup/launch`、`src/inspection_bringup/config` |
+| `inspection_supervisor` | 系统监控（可选） |（待补齐 README） |
+
+## 5. 系统架构（当前工程视角）
 
 ```mermaid
 flowchart TB
-  subgraph 驱动层["驱动层 (Hardware Drivers)"]
+  subgraph Drivers["Drivers"]
     D1["agv_driver"]
-    D2["arm_driver<br/>(elfin_ethercat_driver)"]
+    D2["arm_driver"]
     D3["realsense_driver"]
     D4["hikvision_driver"]
   end
 
-  subgraph 控制层["控制层 (Motion Control)"]
-    C1["arm_controller<br/>(MoveIt2 + elfin_basic_api)"]
+  subgraph Control["Control"]
+    C1["arm_controller"]
   end
 
-  subgraph 算法层["算法层 (Perception & Planning)"]
+  subgraph Algo["Perception/Planning"]
     A1["pose_detector"]
     A2["path_planner"]
     A3["defect_detector"]
   end
 
-  subgraph 协调层["协调层 (Coordination)"]
+  subgraph Coord["Coordination"]
     CO1["task_coordinator"]
   end
 
-  subgraph 基础设施["基础设施 (Infrastructure)"]
+  subgraph Infra["Infra"]
     I1["inspection_interface"]
     I2["inspection_bringup"]
     I3["inspection_supervisor"]
@@ -167,800 +111,42 @@ flowchart TB
   CO1 --> D4
 ```
 
-## 5.1 API 优先级决策（当前阶段）
+## 6. TF 约定（最小集合）
 
-在“上位机 + 机器人 + 设备驱动”三层并行推进的阶段，接口优先级固定为：
+工程里只强制约定最关键的两个 frame：
 
-1. **外部契约层（最高优先级）**：`inspection-api/proto/inspection_gateway.proto`
-2. **机器人内部编排层**：`inspection_interface`（对齐网关语义）
-3. **设备厂商层（最低优先级）**：AGV TCP API / 相机 SDK（仅驱动内部使用）
+1. `map`：AGV 的世界坐标系（地图坐标系）
+2. `base_link`：AGV 底盘坐标系
 
-结论：当前状态下，**最优的算法接口来源是 `inspection-api` 提供的网关契约**，而不是直接基于某个设备 API 设计上层算法。
+`agv_driver` 可选发布：`map -> base_link`。
 
-- 上位机的规划与执行语义（`PlanInspection/Start/Pause/Resume/Stop/GetTaskStatus/Subscribe*`）以 `inspection-api` 为准。
-- `inspection_interface` 只承接机器人内部实时消息，并保持与网关状态模型同构（任务阶段、AGV/机械臂状态、错误信息）。
-- 驱动层继续封装设备细节，避免算法层与设备协议耦合。
+机械臂/相机的 TF（`arm_base/tool0/*camera*`）以 URDF/各自驱动为准，后续逐步统一。
 
-## 6. 功能包设计
+## 7. 消息/服务定义（不在 README 重复抄写）
 
-### 命名规则
+为了避免 README 和代码出现“字段不一致”，本仓库不在此处复制 `.msg/.srv` 内容。
 
-借鉴 radar_ros_ws 的设计思想：
+- 机器人内部接口：`src/inspection_interface/msg`、`src/inspection_interface/srv`
+- 对外契约：`inspection-api/proto/inspection_gateway.proto`（以该仓库为准）
 
-| 层级 | 命名模式 | 示例 |
-|-----|---------|------|
-| **驱动层** | `[设备]_driver` | `agv_driver`, `arm_driver`, `hikvision_driver` |
-| **控制层** | `[设备]_controller` | `arm_controller` |
-| **算法层** | `[处理方式]_[目标对象]` | `pose_detector`, `path_planner`, `defect_detector` |
-| **基础设施** | `inspection_[功能]` | `inspection_bringup`, `inspection_interface` |
+## 8. 测试与联调建议（按工程阶段）
 
-**设计原则**：
-- 驱动层统一 `*_driver` 后缀，职责单一，仅硬件通信
-- 控制层统一 `*_controller` 后缀，封装运动规划（MoveIt2）
-- 算法层强调"做什么"，保持通用性
-- 使用 ROS2 Composable Node 架构，支持容器化部署
+本项目更关心“能把系统跑起来并可定位问题”，因此只保留最实用的三类验证：
 
----
+1. A 级：纯逻辑单测（`colcon test` 能跑，且不依赖真机）
+2. B 级：离线回放/仿真（可选）
+3. C 级：真机联调清单（更重要，但不进 CI）
 
-### 6.1 驱动层 (Hardware Drivers)
+根 README 不再重复列出每个包的 topic/service/参数细节（容易与实现漂移），以各包 README 与代码为准。
 
-#### **agv_driver** (AGV底盘驱动)
+建议每个包至少提供一段“功能性验证清单”（不做算法正确性判断，只验证接口/联通/基本行为）：
 
-纯驱动层，封装仙宫AGV SDK，提供ROS接口。
+- `agv_driver`：连通；下发导航目标成功；到位与停止判定可用（安全场地）。
+- `arm_driver`：EtherCAT 连通；关节与驱动状态更新；基础控制服务可用。
+- 相机：图像/深度/点云发布稳定；配置可复现。
 
-- **功能**:
-  - 封装仙宫AGV SDK通信（AGV自带SLAM）
-  - 接收 `map` 坐标系目标点并下发到底盘导航
-  - 转发AGV当前位姿到ROS（`map -> base_link`）
-  - 上报底盘状态（`arrived` / `stopped` / `error_code`）
-- **节点**: `agv_driver_node` (Composable)
-- **命名空间**: `/inspection/agv`
-- **订阅**:
-  - `~/goal_pose` (geometry_msgs/PoseStamped) - 导航目标（map系）
-  - `~/cmd_vel` (geometry_msgs/Twist) - 手动调试速度指令（可选）
-- **发布**:
-  - `~/current_pose` (geometry_msgs/PoseStamped) - 当前位姿（map系）
-  - `~/status` (AgvStatus) - 底盘状态（到位、静止、电压、错误码）
-  - `~/odom` (nav_msgs/Odometry) - 里程计（若SDK提供）
-- **TF**: `map → base_link`（由SDK位姿转换发布）
+## 9. 代码规范（必须遵守）
 
-#### **arm_driver** (机械臂驱动)
-
-纯驱动层，封装大族 E05 EtherCAT 通信（基于 elfin_ethercat_driver）。
-
-**内部结构**：
-```
-arm_driver/
-├── elfin_core/              # Elfin 底层 C/C++ 核心
-│   ├── elfin_ethercat_driver/  # EtherCAT 硬件驱动
-│   └── soem_ros2/              # EtherCAT 协议栈
-├── include/
-│   └── arm_driver/
-│       └── arm_driver_node.hpp # 驱动封装类声明
-├── config/
-│   └── arm_driver.yaml         # EtherCAT 与关节参数
-├── launch/
-│   └── arm_driver.launch.py
-└── src/
-    ├── arm_driver_node.cpp      # main 入口
-    ├── arm_driver_node_core.cpp # EtherCAT 核心初始化与换算
-    └── arm_driver_node_ros.cpp  # ROS 话题/服务封装
-```
-
-说明：
-- `elfin_core` 只放底层驱动能力，不放控制层/规划层逻辑。
-- `soem_ros2` 由 `elfin_ethercat_driver` 在进程内直接调用（`ec_*` API），`arm_driver` 不直接操作 SOEM C API。
-- `elfin_ros_control`、`elfin_robot_msgs` 不在当前 `arm_driver/elfin_core` 移植范围内（避免驱动层职责扩张）。
-
-- **功能**:
-  - 封装 EtherCAT 通信协议
-  - 发布关节状态（位置、速度、扭矩）
-  - 接收关节指令（位置、速度）
-  - 提供使能/禁用、故障清除服务
-- **可执行文件**: `arm_driver_node`
-- **节点名**: `arm_driver`（由 launch 指定）
-- **命名空间**: `/inspection/arm`
-- **订阅**:
-  - `~/joint_cmd` (sensor_msgs/JointState) - 关节指令
-- **发布**:
-  - `/joint_states` (sensor_msgs/JointState) - 关节状态
-  - `~/status` (ArmStatus) - 机械臂状态
-- **Service**:
-  - `~/enable` - 使能机械臂
-  - `~/disable` - 禁用机械臂
-  - `~/clear_fault` - 清除故障
-  - `~/stop` - 紧急停止
-
-#### **realsense_driver** (深度相机驱动)
-
-直接使用Intel官方 `realsense2_camera` 包，封装配置。
-
-- **功能**:
-  - 发布彩色图像、深度图、点云
-- **命名空间**: `/inspection/realsense`
-- **发布**:
-  - `~/color/image_raw`
-  - `~/depth/image_rect_raw`
-  - `~/depth/color/points`
-  - `~/camera_info`
-
-#### **hikvision_driver** (工业相机驱动)
-
-纯驱动层，封装海康SDK。
-
-- **功能**:
-  - 软/硬触发图像采集
-  - 曝光、增益参数控制
-- **节点**: `hikvision_driver_node` (Composable)
-- **命名空间**: `/inspection/hikvision`
-- **发布**:
-  - `~/image_raw` (sensor_msgs/Image)
-  - `~/camera_info` (sensor_msgs/CameraInfo)
-- **Service**:
-  - `~/trigger` - 触发单帧采集
-
----
-
-### 6.2 控制层 (Motion Control)
-
-> 注：本节为目标设计；当前仓库中 `arm_controller` 仍是骨架包，接口与目录会按此逐步补齐。
-
-#### **arm_controller** (机械臂运动控制)
-
-高级运动控制接口，基于 MoveIt2 和 elfin_basic_api，提供笛卡尔位姿控制和轨迹规划。
-
-**内部结构**：
-```
-arm_controller/
-├── elfin_core/
-│   ├── elfin_basic_api/        # MoveIt2 运动规划封装
-│   ├── elfin_description/      # URDF 模型
-│   └── elfin5_ros2_moveit2/    # MoveIt2 配置（针对 Elfin5 型号）
-└── src/
-    └── arm_controller_node.cpp # 对外接口节点
-```
-
-- **功能**:
-  - 笛卡尔空间位姿控制（末端位置+姿态）
-  - 关节空间运动规划
-  - 笛卡尔路径规划（线性、圆弧）
-  - 碰撞检测和避障
-  - 速度缩放控制
-- **节点**: `arm_controller_node`
-- **命名空间**: `/inspection/arm_control`
-- **订阅**:
-  - `~/cart_goal` (PoseStamped) - 笛卡尔目标位姿
-  - `~/joint_goal` (JointState) - 关节目标位置
-  - `~/cart_path_goal` (PoseArray) - 笛卡尔路径
-  - `~/velocity_scaling` (Float64) - 速度缩放系数
-- **发布**:
-  - `~/motion_status` (String) - 运动状态
-  - `~/trajectory_progress` (Float64) - 轨迹执行进度
-- **Service**:
-  - `~/move_to_pose` (MoveToPose) - 移动到目标位姿（阻塞）
-  - `~/move_joint` (MoveJoint) - 关节空间运动（阻塞）
-  - `~/execute_path` (ExecutePath) - 执行笛卡尔路径
-  - `~/set_reference_frame` (SetString) - 设置参考坐标系
-  - `~/stop_motion` (Empty) - 停止当前运动
-- **参数**:
-  ```yaml
-  arm_controller:
-    ros__parameters:
-      robot_model: "elfin5"
-      planning_group: "elfin_arm"
-      velocity_scaling: 0.5       # 默认速度缩放
-      acceleration_scaling: 0.5   # 默认加速度缩放
-      planning_time: 5.0          # 规划超时时间(秒)
-      goal_tolerance: 0.01        # 目标位置容差(米)
-      orientation_tolerance: 0.05 # 目标姿态容差(弧度)
-  ```
-
-**依赖关系**：
-```
-arm_controller
-    ↓ (调用)
-MoveIt2 运动规划
-    ↓ (生成轨迹)
-joint_trajectory_controller
-    ↓ (通过 ROS2 control)
-arm_driver (硬件接口)
-```
-
----
-
-### 6.3 算法层 (Perception & Planning)
-
-> 注：本节描述目标能力；当前 `pose_detector/path_planner/defect_detector` 仍在从骨架包向实现迁移。
-
-#### **pose_detector** (位姿检测)
-
-通用位姿检测模块，可检测任意已知模型的物体。
-
-- **功能**:
-  - 基于深度相机的6D位姿检测
-  - 点云配准（ICP/FPFH）或深度学习检测
-  - 输出目标在SLAM地图中的位姿
-- **节点**: `pose_detector_node` (Composable)
-- **命名空间**: `/inspection/perception`
-- **订阅**:
-  - `/inspection/realsense/depth/color/points` (PointCloud2)
-- **发布**:
-  - `~/detected_pose` (PoseStamped) - 检测到的位姿
-  - `~/confidence` (Float32) - 置信度
-- **Service**:
-  - `~/detect` - 触发检测
-- **参数**:
-  ```yaml
-  pose_detector:
-    ros__parameters:
-      model_path: "models/workpiece.pcd"
-      algorithm: "icp"  # icp | fpfh | deep_learning
-      voxel_size: 0.01
-      max_correspondence_dist: 0.05
-  ```
-
-#### **path_planner** (路径规划)
-
-AGV+机械臂联合路径规划。
-
-- **功能**:
-  - 加载CAD模型并接收人工标注检测点
-  - 生成候选AGV站位（`x,y,yaw`）
-  - 通过位姿链反推TCP目标位姿并求解IK
-  - 进行 `MoveJ` 插值路径碰撞检查
-  - 基于联合代价函数选择最优 `(agv_pose, arm_joints)`
-  - 对检测点序列进行路径排序优化（TSP）
-- **节点**: `path_planner_node`
-- **命名空间**: `/inspection/planning`
-- **订阅**:
-  - `/inspection/perception/detected_pose` - 工件位姿
-  - `/inspection/agv/current_pose` - 当前底盘位姿
-- **发布**:
-  - `~/path` (InspectionPath) - 含AGV站位+机械臂目标的检测路径
-- **Service**:
-  - `~/load_model` - 加载CAD模型
-  - `~/add_point` - 添加检测点
-  - `~/optimize` - 联合优化并生成路径
-- **参数**:
-  ```yaml
-  path_planner:
-    ros__parameters:
-      camera_working_dist: 0.3
-      arm_reach_max: 0.8
-      arm_reach_min: 0.2
-      collision_margin: 0.05
-      candidate_radius: 0.6
-      candidate_yaw_step_deg: 15.0
-      w_agv_distance: 1.0
-      w_joint_delta: 0.8
-      w_manipulability: 0.6
-      w_view_error: 1.2
-      w_joint_limit: 0.5
-  ```
-
-- **核心代价函数**:
-  ```math
-  J=
-  w_1\|b-b_{prev}\|^2+
-  w_2\|q-q_{prev}\|^2+
-  w_3\frac{1}{m(q)+\epsilon}+
-  w_4E_{view}+
-  w_5E_{limit}
-  ```
-
-#### **defect_detector** (缺陷检测)
-
-图像缺陷检测算法模块。
-
-- **功能**:
-  - 图像缺陷检测（传统算法或深度学习）
-  - 返回缺陷类型、位置、置信度
-- **节点**: `defect_detector_node` (Composable)
-- **命名空间**: `/inspection/perception`
-- **订阅**:
-  - `/inspection/hikvision/image_raw` (Image)
-- **发布**:
-  - `~/result` (DefectResult) - 检测结果
-  - `~/visualization` (Image) - 可视化标注
-- **Service**:
-  - `~/detect` - 触发检测
-- **参数**:
-  ```yaml
-  defect_detector:
-    ros__parameters:
-      model_path: "models/defect.onnx"
-      confidence_threshold: 0.7
-      nms_threshold: 0.5
-  ```
-
----
-
-### 6.4 协调层 (Coordination)
-
-#### **task_coordinator** (任务协调)
-
-系统大脑，负责任务编排和状态机管理。
-
-- **功能**:
-  - 任务状态机管理
-  - 子系统协调调度
-  - 异常处理与恢复
-- **节点**: `task_coordinator_node`
-- **命名空间**: `/inspection`
-- **状态机**:
-  ```
-  IDLE → LOCALIZING → PLANNING → EXECUTING → COMPLETED
-           ↑___________↓__________↓ (出错可重试)
-  ```
-- **发布**:
-  - `/inspection/state` (SystemState) - 系统整体状态
-- **调用服务**:
-  - 控制层: `~/arm_control/move_joint`（主流程，MoveJ）, `~/arm_control/move_to_pose`（调试）
-  - 驱动层: `~/hikvision/trigger`
-  - 算法层: `~/perception/detect`, `~/planning/optimize`
-- **发布命令**:
-  - `/inspection/agv/goal_pose` (PoseStamped) - 发送AGV目标点
-- **状态门控**:
-  - 仅当 `/inspection/agv/status` 满足 `arrived=true && stopped=true` 时下发机械臂动作
-
----
-
-### 6.5 基础设施 (Infrastructure)
-
-#### **inspection_interface** (接口定义)
-
-消息、服务、Action 定义包。
-
-```
-inspection_interface/
-├── msg/
-│   ├── AgvStatus.msg
-│   ├── ArmStatus.msg
-│   ├── DefectInfo.msg
-│   ├── InspectionResult.msg
-│   ├── InspectionTask.msg
-│   ├── RobotPose.msg
-│   └── SystemState.msg
-├── srv/
-│   ├── StartInspection.srv
-│   ├── PauseInspection.srv
-│   ├── ResumeInspection.srv
-│   ├── StopInspection.srv
-│   ├── GetInspectionStatus.srv
-│   ├── MoveToPose.srv
-└── (当前阶段无 action)
-```
-
-#### **inspection_bringup** (启动管理)
-
-集中管理launch文件和配置。
-
-```
-inspection_bringup/
-├── launch/
-│   ├── camera_only.launch.py   # 仅启动海康相机（调试）
-│   ├── drivers.launch.py       # 启动当前驱动集合（相机等）
-│   └── system.launch.py        # 启动系统入口（逐步扩展）
-├── config/
-│   ├── inspection.yaml         # 通用驱动参数
-│   └── realsense.yaml          # RealSense 参数
-└── package.xml
-```
-
-**容器化启动示例** (drivers.launch.py):
-```python
-from launch import LaunchDescription
-from launch_ros.actions import ComposableNodeContainer, Node
-from launch_ros.descriptions import ComposableNode
-
-def generate_launch_description():
-    camera_container = ComposableNodeContainer(
-        name='driver_container',
-        namespace='/inspection',
-        package='rclcpp_components',
-        executable='component_container',
-        composable_node_descriptions=[
-            ComposableNode(
-                package='hikvision_driver',
-                plugin='hikvision_driver::HikvisionDriverNode',
-                name='hikvision_driver_node',
-                namespace='/inspection/hikvision',
-            ),
-        ],
-    )
-
-    arm_driver_node = Node(
-        package='arm_driver',
-        executable='arm_driver_node',
-        name='arm_driver',
-        namespace='/inspection/arm',
-    )
-
-    return LaunchDescription([camera_container, arm_driver_node])
-```
-
-#### **inspection_supervisor** (状态监控)
-
-系统健康监控，可选 GUI。
-
-- **功能**:
-  - 监控各节点心跳
-  - 汇总系统状态
-  - 异常告警
-- **节点**: `supervisor_node` (Python)
-- **发布**:
-  - `/inspection/health` - 各节点健康状态
-  - `/inspection/alerts` - 异常告警
-
----
-
-## 7. 工作空间结构
-
-```
-inspection_ws/
-├── src/
-│   │── 基础设施 ──────────────────────────
-│   ├── inspection_interface/     # 消息/服务定义
-│   ├── inspection_bringup/       # 启动管理
-│   ├── inspection_supervisor/    # 状态监控
-│   │
-│   │── 驱动层 ────────────────────────────
-│   ├── agv_driver/               # 仙宫AGV驱动
-│   ├── arm_driver/               # 大族机械臂EtherCAT驱动
-│   │   ├── elfin_core/           # Elfin底层C/C++核心
-│   │   │   ├── elfin_ethercat_driver/
-│   │   │   └── soem_ros2/
-│   │   ├── include/
-│   │   │   └── arm_driver/
-│   │   │       └── arm_driver_node.hpp
-│   │   ├── config/
-│   │   │   └── arm_driver.yaml
-│   │   ├── launch/
-│   │   │   └── arm_driver.launch.py
-│   │   └── src/
-│   │       ├── arm_driver_node.cpp
-│   │       ├── arm_driver_node_core.cpp
-│   │       └── arm_driver_node_ros.cpp
-│   ├── realsense_driver/         # RealSense配置封装
-│   ├── hikvision_driver/         # 海康工业相机驱动
-│   │
-│   │── 控制层 ────────────────────────────
-│   ├── arm_controller/           # 机械臂运动控制
-│   │   ├── elfin_core/           # Elfin SDK原始包
-│   │   │   ├── elfin_basic_api/
-│   │   │   ├── elfin_description/
-│   │   │   └── elfin5_ros2_moveit2/
-│   │   └── src/
-│   │       └── arm_controller_node.cpp
-│   │
-│   │── 算法层 ────────────────────────────
-│   ├── pose_detector/            # 位姿检测
-│   ├── path_planner/             # 路径规划
-│   ├── defect_detector/          # 缺陷检测
-│   │
-│   │── 协调层 ────────────────────────────
-│   └── task_coordinator/         # 任务协调
-│
-├── install/
-├── build/
-└── log/
-```
-
-## 8. 数据流
-
-### 8.1 初始化阶段
-
-```
-1. 启动 inspection_bringup 加载所有配置
-2. 驱动容器启动，建立硬件连接
-3. TF树自动发布
-```
-
-### 8.2 工件定位阶段
-
-```
-realsense_driver ──→ pose_detector ──→ task_coordinator
-    (点云)              (位姿)            (决策)
-```
-
-### 8.3 路径规划阶段
-
-```
-pose_detector + CAD模型 + agv_current_pose ──→ path_planner ──→ task_coordinator
-      (工件位姿)                       (联合优化路径)        (保存路径)
-
-path_planner内部:
-  候选AGV站位采样 → 位姿链反推TCP → IK筛选 → MoveJ碰撞检查 → 代价最小化
-```
-
-### 8.4 执行阶段（循环）
-
-```
-for waypoint in path:
-    task_coordinator ──→ agv_driver        (发送 map系 goal_pose)
-    wait agv_status.arrived && agv_status.stopped
-    task_coordinator ──→ arm_controller    (MoveJ 到 joint_goal)
-        arm_controller ──→ MoveIt2/IK      (逆解+轨迹)
-        MoveIt2/IK ──→ arm_driver          (执行轨迹)
-    task_coordinator ──→ hikvision_driver  (触发拍照)
-    hikvision_driver ──→ defect_detector   (图像)
-    defect_detector  ──→ task_coordinator  (结果)
-```
-
-## 9. 依赖关系
-
-```
-inspection_interface (最底层，无依赖)
-         ↑
-inspection_bringup, inspection_supervisor
-         ↑
-驱动层: agv_driver, arm_driver, realsense_driver, hikvision_driver
-         ↑
-控制层: arm_controller (依赖 arm_driver + MoveIt2)
-         ↑
-算法层: pose_detector, path_planner, defect_detector
-         ↑
-task_coordinator (最顶层，依赖所有)
-```
-
-## 10. 与原版架构对比
-
-| 原版设计 | 新版设计 | 改进点 |
-|---------|---------|-------|
-| 驱动层包含运动规划 | 驱动层(arm_driver) + 控制层(arm_controller) | 职责分离，驱动层纯硬件通信 |
-| `workpiece_detector` | `pose_detector` | 更通用，可检测任意物体 |
-| `path_optimizer` | `path_planner` | 回归本质，规划而非优化 |
-| 无命名空间 | `/inspection/*` | 统一命名空间管理 |
-| 独立节点 | Composable Node | 支持容器化部署 |
-| 绝对话题名 | 相对话题名 `~/` | 更灵活的重映射 |
-| 无参数示例 | YAML 参数配置 | 符合 ROS2 规范 |
-| 无 MoveIt2 | 控制层集成 MoveIt2 | 利用成熟运动规划方案 |
-
-## 11. 启动顺序
-
-```bash
-# 方式1: 分步启动
-ros2 launch inspection_bringup drivers.launch.py      # 当前可用驱动集合
-ros2 launch arm_driver arm_driver.launch.py           # 机械臂驱动
-
-# 方式2: 一键启动
-ros2 launch inspection_bringup system.launch.py
-
-# 注：算法层/协调层 launch 文件仍在补齐中
-```
-
-## 12. 自定义消息定义
-
-```protobuf
-# InspectionPoint.msg
-geometry_msgs/Pose agv_pose      # AGV目标位姿（map系）
-geometry_msgs/Pose arm_pose      # 机械臂目标位姿（arm_base系，调试/可视化）
-float64[] arm_joint_goal         # MoveJ目标关节角（主执行字段）
-int32 point_id
-float32 expected_quality         # 预期检测质量
-float32 planning_cost            # 联合优化代价值
-
-# InspectionPath.msg
-InspectionPoint[] waypoints
-int32 total_points
-float32 estimated_distance       # 预计行驶距离
-
-# DefectResult.msg
-std_msgs/Header header
-bool has_defect
-string defect_type
-float32 confidence
-int32[] bbox                     # [x, y, w, h] 缺陷框像素坐标
-
-# SystemState.msg
-string current_phase             # IDLE/LOCALIZING/PLANNING/EXECUTING/COMPLETED
-float32 progress_percent
-string current_action
-string error_message
-
-# AgvStatus.msg
-bool connected
-bool arrived
-bool moving
-bool stopped                     # 速度收敛到阈值内
-geometry_msgs/Pose current_pose  # 当前位姿（map系）
-float32 battery_percent
-string error_code
-
-# ArmStatus.msg
-bool connected
-bool arrived
-bool moving
-float64[] current_joints         # 当前关节角度
-float32 manipulability           # 当前构型可操作度（可选）
-string error_code
-```
-
-## 13. TF树结构
-
-```
-map (SLAM全局坐标系)
- └─ base_link (AGV底盘)
-     └─ arm_base (机械臂基座)
-         └─ link1 → link2 → ... → link6
-             └─ tool0 (末端法兰)
-                 ├─ realsense_link (深度相机)
-                 └─ hikvision_link (工业相机)
-```
-
-## 14. 开发工具
-
-在 `.vscode/tasks.json` 中预置常用命令：
-
-```json
-{
-  "tasks": [
-    {
-      "label": "build: all",
-      "command": "colcon build --symlink-install"
-    },
-    {
-      "label": "build: interface",
-      "command": "colcon build --packages-select inspection_interface"
-    },
-    {
-      "label": "build: drivers",
-      "command": "colcon build --packages-select agv_driver arm_driver hikvision_driver"
-    },
-    {
-      "label": "launch: drivers",
-      "command": "ros2 launch inspection_bringup drivers.launch.py"
-    },
-    {
-      "label": "launch: system",
-      "command": "ros2 launch inspection_bringup system.launch.py"
-    }
-  ]
-}
-```
-
-## 15. 单元测试规范（必须）
-
-本项目当前阶段以**单元测试**为主，不把集成测试和硬件联调混在一起。
-
-### 15.1 单元测试范围
-
-1. 只测“纯逻辑单元”：
-   - 函数输入输出
-   - 状态机分支
-   - 参数边界与异常处理
-   - 消息/坐标转换函数
-2. 单元测试阶段不测真实硬件链路（真机联调见 15.2 的 C 级验证）：
-   - 相机/机械臂/AGV在线通信
-   - 跨节点时序编排
-3. 框架建议：
-   - C++ 包：`gtest`
-   - Python 包：`pytest`
-
-### 15.2 功能包测试分析（按工程阶段）
-
-说明：
-
-1. `A级（必须）`：纯单元测试，纳入 `colcon test`。
-2. `B级（建议）`：离线回放/仿真验证，不依赖真实硬件。
-3. `C级（可选）`：真机联调验证，不纳入 CI。
-
-#### `agv_driver`
-
-- A级（必须）：
-  - 到位判定函数（`task_status -> arrived`）；
-  - 状态码映射优先级（`DISCONNECTED/EMERGENCY/BLOCKED/ALARM`）；
-  - 命令号到端口映射函数（`1000~6999` 与 `9300/19301`）。
-- C级（可选）：
-  - AGV TCP 连通性检查（`19204/19205/19206/19207/19210/19301`）；
-  - 启动节点后验证 `/inspection/agv/current_pose`、`/inspection/agv/status`、`/inspection/agv/odom` 是否持续更新；
-  - 在安全场地验证 `goal_pose -> arrived && stopped` 闭环。
-
-#### `arm_driver`
-
-- A级（必须）：
-  - 关节限位检查；
-  - 错误码映射；
-  - 使能/去使能指令参数合法性。
-- C级（可选）：
-  - EtherCAT 连接与重连；
-  - 机械臂使能、回零、急停恢复流程。
-
-#### `arm_controller`
-
-- A级（必须）：
-  - IK 候选解筛选逻辑；
-  - MoveJ 目标合法性检查；
-  - 不可达目标拒绝策略。
-- B级（建议）：
-  - MoveIt2 离线规划回放（固定输入、固定预期）。
-
-#### `hikvision_driver`
-
-- A级（必须）：
-  - 设备选择逻辑（SN/index）；
-  - 参数解析与默认值；
-  - 错误重试次数与延时逻辑。
-- C级（可选）：
-  - 真机采图稳定性（帧率、丢帧、断连恢复）。
-
-#### `pose_detector`
-
-- A级（必须）：
-  - 位姿估计结果过滤；
-  - 置信度阈值逻辑；
-  - 异常输入（空图像/非法深度）处理。
-- B级（建议）：
-  - 基于 rosbag 的离线回放一致性检查。
-
-#### `path_planner`
-
-- A级（必须）：
-  - 候选点打分函数；
-  - 不可达点剔除逻辑；
-  - 路径长度/代价单调性检查。
-- B级（建议）：
-  - 固定地图下的回归用例（输入路径点与输出顺序一致性）。
-
-#### `defect_detector`
-
-- A级（必须）：
-  - 阈值过滤；
-  - NMS/后处理正确性；
-  - 边界框越界修正逻辑。
-- B级（建议）：
-  - 样本集离线评估（精度趋势是否回退）。
-
-#### `task_coordinator`
-
-- A级（必须）：
-  - 状态迁移条件；
-  - 超时处理；
-  - 失败重试与中断恢复分支。
-- B级（建议）：
-  - 基于 mock topic 的流程编排回放（不接硬件）。
-
-#### `inspection_interface`
-
-- A级（必须）：
-  - msg/srv 字段兼容性（序列化/反序列化）；
-  - 新增字段默认值与向后兼容性检查。
-- B级（建议）：
-  - 跨包编译联动验证（接口变更后依赖包是否全部通过编译）。
-
-### 15.3 目录与命名约定
-
-1. C++：每个包放 `test/`，文件命名 `test_<module>.cpp`。
-2. Python：每个包放 `tests/`，文件命名 `test_<module>.py`。
-3. 测试函数命名要直接体现行为，例如 `should_reject_unreachable_pose`。
-
-### 15.4 执行命令（单元测试）
-
-```bash
-# 只跑指定包单元测试
-colcon test --packages-select hikvision_driver path_planner task_coordinator --event-handlers console_direct+
-colcon test-result --verbose
-
-# 跑全仓库单元测试
-colcon test --event-handlers console_direct+
-colcon test-result --verbose
-```
-
-### 15.5 验收口径（论文可引用）
-
-1. 每个核心功能包至少有 2-3 个可重复执行的单元测试。
-2. 提交前可运行 `colcon test` 并输出可追溯结果。
-3. 关键算法分支（正常/边界/异常）均有对应测试用例。
-
-## 16. 代码规范执行规则
-
-本项目所有 C/C++ 代码统一遵循工作区根目录规则文件：
-
-1. 格式化规则：`/Users/david/Documents/Huorui/Curriculums/大四下/000 毕业设计/graduation_project_ws/.clang-format`
-2. 静态检查规则：`/Users/david/Documents/Huorui/Curriculums/大四下/000 毕业设计/graduation_project_ws/.clang-tidy`
-
-新增强制命名规则：
-
-1. `class` 的 `private` 成员变量必须以下划线 `_` 开头。
-2. 推荐示例：`_camera_handle`、`_frame_id`、`_retry_count`。
-3. 不符合示例：`camera_handle`、`mCameraHandle`、`cameraHandle`。
+1. 格式化：工作区根目录 `.clang-format`
+2. 静态检查：工作区根目录 `.clang-tidy`
+3. 强制命名：`class` 的 `private` 成员变量必须以下划线 `_` 开头（例：`_frame_id`、`_retry_count`）。

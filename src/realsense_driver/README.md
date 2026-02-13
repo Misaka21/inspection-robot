@@ -35,7 +35,7 @@ ros2 launch inspection_bringup drivers.launch.py
 `drivers.launch.py` 当前会 include 官方 `rs_launch.py`，并传入：
 
 - `camera_namespace:=inspection/realsense`
-- `camera_name:=d435`
+- `camera_name:=d435`（可按实际相机型号修改）
 - `config_file:=<inspection_bringup>/config/realsense.yaml`
 
 对应配置文件在：`inspection_bringup/config/realsense.yaml`。
@@ -46,9 +46,9 @@ ros2 launch inspection_bringup drivers.launch.py
 
 - **命名空间**：`/inspection/realsense`
 - **节点名（camera_name）**：`d435`
-- **完整话题前缀通常为**：`/inspection/realsense/d435/...`
+- **完整话题前缀通常为**：`/inspection/realsense/<camera_name>/...`
 
-常用发布（以默认打开 color+depth+align+pointcloud 为例）：
+常用发布（以默认打开 color+depth+align+pointcloud 为例；只列最常用的一小部分）：
 
 - `~/color/image_raw` (`sensor_msgs/msg/Image`)
 - `~/color/camera_info` (`sensor_msgs/msg/CameraInfo`)
@@ -63,21 +63,15 @@ TF：
 
 ## 4. 默认参数（项目侧）
 
-本项目在 `inspection_bringup/config/realsense.yaml` 里给出了一组“够用的默认值”：
+本项目的默认参数在 `inspection_bringup/config/realsense.yaml`。
 
-```yaml
-enable_color: true
-enable_depth: true
-enable_infra: false
-enable_sync: true
-align_depth.enable: true
-pointcloud.enable: true
-publish_tf: true
-tf_publish_rate: 10.0
-initial_reset: false
-```
+通常只需要关心这些开关类参数（其余以官方 `rs_launch.py` 参数为准）：
 
-如需调整分辨率/FPS、IMU、对齐策略等，请以官方 `rs_launch.py` 的参数列表为准，并在该 YAML 中覆盖。
+- `enable_color` / `enable_depth`
+- `align_depth.enable`
+- `pointcloud.enable`
+- `publish_tf` / `tf_publish_rate`
+- `initial_reset`
 
 ## 5. 功能性验证（非算法测试）
 
@@ -91,7 +85,7 @@ initial_reset: false
 colcon build --packages-select realsense2_camera --cmake-args -DBUILD_TOOLS=ON
 source install/setup.bash
 ros2 run realsense2_camera realsense2_frame_latency_node --ros-args \
-  -p topic_name:=/inspection/realsense/d435/depth/color/points \
+  -p topic_name:=/inspection/realsense/<camera_name>/depth/color/points \
   -p topic_type:=points
 ```
 
@@ -111,4 +105,3 @@ ros2 run realsense2_camera realsense2_frame_latency_node --ros-args \
 ## 7. Upstream / License
 
 `realsense2_camera` 与 `realsense2_camera_msgs` 来自 RealSense 官方 ROS 2 驱动仓库，License 为 Apache-2.0（以各包 `package.xml` 声明为准）。
-
