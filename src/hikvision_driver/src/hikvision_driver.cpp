@@ -137,7 +137,7 @@ void HikvisionDriverNode::init_camera() {
     bool device_found = false;
     uint32_t selected_device_index = 0;
     std::string sn_to_find = get_parameter("sn").as_string();
-    max_retry_attempts = std::max(1, get_parameter("max_retry_attempts").as_int());
+    max_retry_attempts = std::max<int>(1, get_parameter("max_retry_attempts").as_int());
     retry_delay_sec = get_parameter("retry_delay_sec").as_double();
     device_index = get_parameter("device_index").as_int();
     use_mfs_config = get_parameter("use_mfs_config").as_bool();
