@@ -3,53 +3,50 @@
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <chrono>
 
-int main(int argc, char * argv[])
-{
-  rclcpp::init(argc, argv);
-  auto node = std::make_shared<rclcpp::Node>("camera_info_pub");
+int main(int argc, char* argv[]) {
+    rclcpp::init(argc, argv);
+    auto node = std::make_shared<rclcpp::Node>("camera_info_pub");
 
-  RCLCPP_INFO(node->get_logger(), "Starting Camera Info Publisher!");
-  bool use_sensor_data_qos = node->declare_parameter("use_sensor_data_qos", false);
-  std::string camera_info_url = node->declare_parameter("camera_info_url", "");
+    RCLCPP_INFO(node->get_logger(), "Starting Camera Info Publisher!");
+    bool use_sensor_data_qos = node->declare_parameter("use_sensor_data_qos", false);
+    std::string camera_info_url = node->declare_parameter("camera_info_url", "");
+    
+    auto qos = use_sensor_data_qos ? rmw_qos_profile_sensor_data : rmw_qos_profile_default;
 
-  auto qos = use_sensor_data_qos ? rmw_qos_profile_sensor_data : rmw_qos_profile_default;
+    // frame_id 由命名空间决定
+    auto ns = std::string_view(node->get_namespace());
+    auto ns_pos = ns.rfind('/');
+    std::string frame_id;
+    if (ns_pos != std::string_view::npos && ns_pos + 1 < ns.size()) {
+        frame_id = ns.substr(ns.rfind('/') + 1);
+        frame_id.append("_frame");
+    } else {
+        frame_id = "hikvision_frame";
+    }
 
-  // frame_id 由命名空间决定
-  auto ns = std::string_view(node->get_namespace());
-  auto ns_pos = ns.rfind('/');
-  std::string frame_id;
-  if (ns_pos != std::string_view::npos && ns_pos + 1 < ns.size()) {
-    frame_id = ns.substr(ns.rfind('/') + 1);
-    frame_id.append("_frame");
-  } else {
-    frame_id = "hikvision_frame";
-  }
+    // load camera info
+    auto camera_info_manager =
+        std::make_unique<camera_info_manager::CameraInfoManager>(node.get());
+    sensor_msgs::msg::CameraInfo camera_info_msg;
+    if (camera_info_manager->validateURL(camera_info_url)) {
+        camera_info_manager->loadCameraInfo(camera_info_url);
+        camera_info_msg = camera_info_manager->getCameraInfo();
+        camera_info_msg.header.frame_id = frame_id;
+    } else {
+        RCLCPP_WARN(node->get_logger(), "Invalid camera info URL: %s",
+                    camera_info_url.c_str());
+    }
 
-  // load camera info
-  auto camera_info_manager =
-    std::make_unique<camera_info_manager::CameraInfoManager>(node.get());
-  sensor_msgs::msg::CameraInfo camera_info_msg;
-  if (camera_info_manager->validateURL(camera_info_url)) {
-    camera_info_manager->loadCameraInfo(camera_info_url);
-    camera_info_msg = camera_info_manager->getCameraInfo();
-    camera_info_msg.header.frame_id = frame_id;
-  } else {
-    RCLCPP_WARN(
-      node->get_logger(), "Invalid camera info URL: %s",
-      camera_info_url.c_str());
-  }
+    auto camera_info_pub = node->create_publisher<sensor_msgs::msg::CameraInfo>(
+        "camera_info", rclcpp::QoS(rclcpp::QoSInitialization::from_rmw(qos)));
 
-  auto camera_info_pub = node->create_publisher<sensor_msgs::msg::CameraInfo>(
-    "camera_info", rclcpp::QoS(rclcpp::QoSInitialization::from_rmw(qos)));
-
-  auto timer = node->create_wall_timer(
-    std::chrono::seconds(1), [&] {
-      camera_info_msg.header.stamp = node->now();
-      camera_info_pub->publish(camera_info_msg);
+    auto timer = node->create_wall_timer(std::chrono::seconds(1), [&] {
+        camera_info_msg.header.stamp = node->now();
+        camera_info_pub->publish(camera_info_msg);
     });
 
-  rclcpp::spin(node);
-  rclcpp::shutdown();
-
-  return EXIT_SUCCESS;
+    rclcpp::spin(node);
+    rclcpp::shutdown();
+    
+    return EXIT_SUCCESS;
 }
