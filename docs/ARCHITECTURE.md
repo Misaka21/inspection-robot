@@ -40,14 +40,14 @@
 ┌───────────────┐  ┌─────────────────┐  ┌─────────────────┐
 │   驱动层      │  │    控制层       │  │    协调层       │
 │               │  │                 │  │                 │
-│ agv_driver   │  │ arm_controller  │  │task_coordinator│
-│ arm_driver   │  │  (MoveIt2)      │  │  (状态机)       │
-│ hikvision_   │  │                 │  │                 │
-│   driver     │  └─────────────────┘  └─────────────────┘
-│ realsense_   │         │                    │
+│ elfin_sdk    │  │ arm_controller  │  │task_coordinator│
+│  (EtherCAT)  │  │  (MoveIt2)      │  │  (状态机)       │
+│ arm_driver   │  │ + elfin_core    │  │                 │
+│ agv_driver   │  └─────────────────┘  └─────────────────┘
+│ hikvision_   │         │                    │
 │   driver     │         ▼                    │
-│               │  ┌─────────────────┐        │
-│               │  │    算法层       │        │
+│ realsense_   │  ┌─────────────────┐        │
+│   (适配层)   │  │    算法层       │        │
 │               │  │                 │        │
 │               │  │ pose_detector  │◄───────┘
 │               │  │ path_planner   │         │
@@ -65,19 +65,19 @@
 
 ### 4.1 驱动层 (Drivers)
 
-| 包名 | 职责 | 命名空间 |
-|------|------|----------|
+| 包名 | 职责 | 备注 |
+|------|------|------|
+| `elfin_sdk` | Elfin 机械臂底层驱动 | 包含 elfin_ethercat_driver, soem_ros2 |
+| `arm_driver` | 机械臂 EtherCAT 驱动 | 调用 elfin_sdk |
 | `agv_driver` | AGV 底盘 TCP 驱动 | `/inspection/agv` |
-| `arm_driver` | 机械臂 EtherCAT 驱动 | `/inspection/arm` |
 | `hikvision_driver` | 海康工业相机驱动 | `/inspection/hikvision` |
-| `elfin_ethercat_driver` | EtherCAT 底层驱动 | (库) |
-| `soem_ros2` | SOEM 协议栈 | (库) |
+| `realsense_driver` | RealSense 相机适配层 | 使用系统包 ros-humble-realsense2-camera |
 
 ### 4.2 控制层 (Control)
 
-| 包名 | 职责 | 命名空间 |
-|------|------|----------|
-| `arm_controller` | MoveIt2 运动控制 | `/inspection/arm_control` |
+| 包名 | 职责 | 备注 |
+|------|------|------|
+| `arm_controller` | MoveIt2 运动控制 | 包含 elfin_core (URDF/消息/API) |
 
 ### 4.3 算法层 (Algo)
 
@@ -169,7 +169,23 @@ IDLE ──▶ LOCALIZING ──▶ PLANNING ──▶ EXECUTING ──▶ COMPL
 **服务**：
 - `~/trigger` - 触发拍照
 
-### 7.4 task_coordinator
+### 7.4 realsense_driver
+
+> 注意：本包是适配层，使用系统包 ros-humble-realsense2-camera，接口由系统包定义。
+
+**命名空间**：`/inspection/realsense`
+**相机名**：`d435`
+
+**发布**（常用）：
+- `~/color/image_raw` (Image) - 彩色图像
+- `~/depth/image_rect_raw` (Image) - 深度图像
+- `~/depth/color/points` (PointCloud2) - 点云
+- `~/aligned_depth_to_color/image_raw` - 对齐后的深度图
+
+**TF**：
+- 发布相机内部 TF（通过 publish_tf 参数控制）
+
+### 7.5 task_coordinator
 
 **发布**：
 - `/inspection/state` (SystemState) - 系统状态
@@ -188,10 +204,10 @@ IDLE ──▶ LOCALIZING ──▶ PLANNING ──▶ EXECUTING ──▶ COMPL
 - `~/resume` - 恢复任务
 - `~/get_status` - 获取状态
 
-### 7.5 pose_detector
+### 7.6 pose_detector
 
 **订阅**：
-- `/inspection/realsense/depth/color/points` (PointCloud2)
+- `/inspection/realsense/d435/depth/color/points` (PointCloud2)
 
 **发布**：
 - `~/detected_pose` (PoseStamped) - 检测到位姿
@@ -200,7 +216,7 @@ IDLE ──▶ LOCALIZING ──▶ PLANNING ──▶ EXECUTING ──▶ COMPL
 **服务**：
 - `~/detect` - 触发检测
 
-### 7.6 path_planner
+### 7.7 path_planner
 
 **订阅**：
 - `/inspection/perception/detected_pose` - 工件位姿
@@ -212,7 +228,7 @@ IDLE ──▶ LOCALIZING ──▶ PLANNING ──▶ EXECUTING ──▶ COMPL
 **服务**：
 - `~/optimize` - 触发规划
 
-### 7.7 defect_detector
+### 7.8 defect_detector
 
 **订阅**：
 - `/inspection/hikvision/image_raw` (Image)
@@ -358,15 +374,21 @@ ros2 launch arm_controller arm_controller.launch.py
 # 编译所有包
 colcon build --symlink-install
 
-# 跳过有问题的包
-colcon build --packages-skip realsense2_camera
-
 # 单独编译
 colcon build --packages-select <package_name>
 
 # 运行测试
-colcon test --packages-skip realsense2_camera
+colcon test
 colcon test-result --verbose
+```
+
+### 13.1 系统依赖
+
+部分驱动使用系统包，需要提前安装：
+
+```bash
+# RealSense 相机驱动
+sudo apt install ros-humble-realsense2-camera ros-humble-librealsense2
 ```
 
 ## 14. 依赖关系

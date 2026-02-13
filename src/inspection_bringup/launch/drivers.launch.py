@@ -41,24 +41,15 @@ def get_camera_container():
     )
 
 def get_realsense_launch():
-    """启动 RealSense 官方驱动，参数由 bringup 配置提供"""
+    """启动 RealSense 驱动（使用系统包 + 本地配置）"""
     return IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
-                get_package_share_directory('realsense2_camera'),
+                get_package_share_directory('realsense_driver'),
                 'launch',
-                'rs_launch.py'
+                'realsense.launch.py'
             )
         ),
-        launch_arguments={
-            'camera_namespace': 'inspection/realsense',
-            'camera_name': 'd435',
-            'config_file': os.path.join(
-                get_package_share_directory('inspection_bringup'),
-                'config',
-                'realsense.yaml'
-            ),
-        }.items(),
     )
 
 

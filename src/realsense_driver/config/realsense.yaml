@@ -1,0 +1,9 @@
+enable_color: true
+enable_depth: true
+enable_infra: false
+enable_sync: true
+align_depth.enable: true
+pointcloud.enable: true
+publish_tf: true
+tf_publish_rate: 10.0
+initial_reset: false

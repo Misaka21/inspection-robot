@@ -44,27 +44,45 @@ ros2 launch inspection_bringup system.launch.py
 
 ```
 src/
-├── agv_driver/          # AGV底盘驱动 (TCP通信)
-├── arm_driver/          # 机械臂驱动 (EtherCAT)
-├── hikvision_driver/    # 海康工业相机驱动
-├── elfin_ethercat_driver/  # EtherCAT底层驱动
-├── soem_ros2/          # SOEM协议栈
-├── arm_controller/      # MoveIt2运动控制
-├── pose_detector/      # 6D位姿检测 (点云配准)
-├── path_planner/       # AGV+机械臂联合路径规划
-├── defect_detector/    # 图像缺陷检测
-├── task_coordinator/   # 任务状态机编排
-├── inspection_interface/  # 消息/服务定义
-├── inspection_bringup/ # 启动文件
-└── inspection_supervisor/ # 系统健康监控
+├── elfin_sdk/                # Elfin 机械臂底层驱动
+│   ├── elfin_ethercat_driver/ # EtherCAT 驱动
+│   └── soem_ros2/            # SOEM 协议栈
+├── arm_driver/               # 机械臂驱动 (调用 elfin_sdk)
+├── arm_controller/           # MoveIt2 运动控制
+│   └── elfin_core/           # 包含 elfin5 URDF、消息、API
+│       ├── elfin5_ros2_moveit2/  # MoveIt2 配置
+│       ├── elfin_description/     # URDF 模型
+│       └── elfin_robot_msgs/      # 消息定义
+├── agv_driver/               # AGV 底盘驱动 (TCP)
+├── hikvision_driver/         # 海康工业相机驱动
+├── pose_detector/            # 6D 位姿检测
+├── path_planner/             # AGV+机械臂联合路径规划
+├── defect_detector/          # 图像缺陷检测
+├── task_coordinator/         # 任务状态机编排
+├── inspection_interface/     # 消息/服务定义
+├── inspection_bringup/      # 启动文件
+├── inspection_supervisor/    # 系统健康监控
+└── realsense_driver/        # RealSense 深度相机
 ```
 
 ### 层级关系
-- 驱动层: agv_driver, arm_driver, hikvision_driver
+- 驱动层: elfin_sdk (elfin_ethercat_driver, soem_ros2), arm_driver, agv_driver, hikvision_driver
 - 控制层: arm_controller (MoveIt2)
 - 算法层: pose_detector, path_planner, defect_detector
 - 协调层: task_coordinator
 - 基础设施: inspection_interface, inspection_bringup, inspection_supervisor
+
+### 注意事项
+- 官方 elfin_ros_control 未移植（使用 topic 通信代替 ros2_control）
+- elfin5 的 URDF 在 arm_controller/elfin_core/elfin_description/
+- realsense_driver 是适配层，使用系统包 ros-humble-realsense2-camera
+
+### 系统依赖
+部分驱动使用系统包，需要提前安装：
+```bash
+# RealSense 相机驱动
+sudo apt install ros-humble-realsense2-camera ros-humble-librealsense2
+```
 
 ## Git Commit 规范
 
