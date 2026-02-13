@@ -1,0 +1,41 @@
+# Get navigation map info for HMI rendering.
+#
+# This is an internal ROS2 service used by inspection_gateway.
+# Vendor TCP APIs (1300/4011/1513) should stay inside agv_driver; this service exposes a stable contract.
+#
+# Map pixel convention should match inspection-api/proto/inspection_gateway.proto:
+# - pixel u increases to the right
+# - pixel v increases downward
+# - origin is the pose of pixel (u=0,v=0) in frame_id (usually "map", yaw=0)
+
+# empty means current loaded map (if any)
+string map_name
+bool include_image_data
+bool include_thumbnail
+bool include_smap_json
+---
+bool success
+string message
+
+# Resolved map identity.
+string map_name
+string map_md5
+
+# Map header (unit: meters).
+float64 resolution_m_per_pixel
+geometry_msgs/Point min_pos
+geometry_msgs/Point max_pos
+
+# Rasterization result for UI.
+uint32 width_px
+uint32 height_px
+geometry_msgs/Pose origin
+string frame_id
+
+# Rendered base image.
+string image_mime_type   # e.g. "image/png"
+uint8[] image_data       # encoded image bytes (PNG/JPEG)
+uint8[] thumbnail_jpeg   # optional small preview
+
+# Optional raw .smap json text (downloaded via 4011). Can be empty.
+string smap_json
