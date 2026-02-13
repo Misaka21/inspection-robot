@@ -165,8 +165,3 @@ Closes: #234, #235
   - 只包含人为编写的提交内容
 
 
-## 注意事项
-
-1. **realsense2_camera** 包有版本兼容问题，使用系统安装的 `ros-humble-realsense2-camera` 代替
-2. colcon 只识别 src/ 下的直接子目录包，不识别嵌套目录
-3. 新增包需要创建 `src/` 目录、CMakeLists.txt、package.xml

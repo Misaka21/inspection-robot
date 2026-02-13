@@ -23,7 +23,7 @@ arm_driver/
     └── arm_driver.launch.py
 ```
 
-依赖包（位于 `src/` 目录）：
+依赖包（位于 `src/elfin_sdk/` 目录）：
 - `elfin_ethercat_driver` - 底层 EtherCAT 驱动库
 - `soem_ros2` - SOEM 协议栈
 
