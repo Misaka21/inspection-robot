@@ -144,6 +144,15 @@ private:
       return;
     }
 
+    if (!msg->header.frame_id.empty() && msg->header.frame_id != _map_frame_id) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "drop goal because frame_id mismatch (got=%s expected=%s)",
+        msg->header.frame_id.c_str(),
+        _map_frame_id.c_str());
+      return;
+    }
+
     const double yaw = yaw_from_quaternion(msg->pose.orientation);
 
     std::string error;

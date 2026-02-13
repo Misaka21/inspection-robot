@@ -106,6 +106,14 @@ arm_driver/
 ros2 launch arm_driver arm_driver.launch.py
 ```
 
+指定命名空间/参数文件：
+
+```bash
+ros2 launch arm_driver arm_driver.launch.py \
+  namespace:=/inspection/arm \
+  params_file:=/absolute/path/to/arm_driver.yaml
+```
+
 默认会加载：
 
 - `config/arm_driver.yaml`

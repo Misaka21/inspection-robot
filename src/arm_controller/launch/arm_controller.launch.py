@@ -1,4 +1,6 @@
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 from launch.substitutions import Command, FindExecutable
@@ -22,10 +24,19 @@ def load_yaml(package_name: str, relative_path: str):
 
 
 def generate_launch_description():
-    params_file = os.path.join(
-        get_package_share_directory("arm_controller"),
-        "config",
-        "arm_controller.yaml",
+    namespace_arg = DeclareLaunchArgument(
+        "namespace",
+        default_value="/inspection/arm_control",
+        description="Namespace for arm_controller node",
+    )
+    params_file_arg = DeclareLaunchArgument(
+        "params_file",
+        default_value=os.path.join(
+            get_package_share_directory("arm_controller"),
+            "config",
+            "arm_controller.yaml",
+        ),
+        description="Path to ROS2 parameters file",
     )
 
     xacro_file = os.path.join(
@@ -48,10 +59,10 @@ def generate_launch_description():
         package="arm_controller",
         executable="arm_controller_node",
         name="arm_controller",
-        namespace="inspection/arm_control",
+        namespace=LaunchConfiguration("namespace"),
         output="screen",
         parameters=[
-            params_file,
+            LaunchConfiguration("params_file"),
             robot_description,
             robot_description_semantic,
             kinematics_yaml,
@@ -68,7 +79,8 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        namespace_arg,
+        params_file_arg,
         robot_state_publisher_node,
         arm_controller_node,
     ])
-
