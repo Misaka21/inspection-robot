@@ -5,34 +5,32 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(rclcpp_action REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(inspection_interface REQUIRED)
 
 add_executable(task_coordinator_node src/task_coordinator_node.cpp)
 target_include_directories(task_coordinator_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
-target_compile_features(task_coordinator_node PUBLIC c_std_99 cxx_std_17)
 ament_target_dependencies(
   task_coordinator_node
   "rclcpp"
-  "rclcpp_action"
   "std_msgs"
   "geometry_msgs"
   "sensor_msgs"
+  "std_srvs"
   "inspection_interface"
 )
 
 install(TARGETS task_coordinator_node
   DESTINATION lib/${PROJECT_NAME})
 
-install(DIRECTORY launch config
+install(DIRECTORY launch config include
   DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
