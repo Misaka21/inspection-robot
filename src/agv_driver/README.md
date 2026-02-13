@@ -103,3 +103,24 @@ AGV << cmd=3051 port=19206 seq=12 ret_code=0 cost_ms=8 body=...
 - 架构与分层：`docs/AGV_DRIVER_ARCHITECTURE.md`
 - API 筛选与命令列表：`docs/AGV_API_SELECTION.md`
 - 端口路由总表：`docs/agv_api_required/PORT_ROUTING.md`
+
+## （规划中）地图获取能力：支撑 GetNavMap
+
+HMI 的导航视图通常需要“底图 + 分辨率 + 原点”。地图文件与地图元信息在 AGV 控制器上，厂商 TCP API 提供了查询/下载接口：
+
+- `1300 robot_status_map_req`：查询当前载入地图名与 md5、保存的地图列表  
+  `docs/agv_api/API/TCP-IP API/机器人状态API/查询机器人载入的地图以及储存的地图.md`
+- `4011 robot_config_downloadmap_req`：按 `map_name` 下载 `.smap`（JSON 文本）  
+  `docs/agv_api/API/TCP-IP API/机器人配置API/从机器人下载地图.md`
+- `.smap` 格式说明（坐标单位为米，地图坐标系即世界坐标系）  
+  `docs/agv_api/API/TCP-IP API/机器人配置API/地图格式说明.md`
+- 可选 `1513 robot_status_costmap_req`：查询代价地图（Message_Grid）  
+  `docs/agv_api/API/TCP-IP API/机器人状态API/查询代价地图.md`
+
+建议实现方式：
+
+1. 在 `agv_driver` 内封装上述厂商 API（保持“厂商协议不外泄”的分层原则）
+2. 通过 ROS2 service 把“解析后的 map 元信息 + 底图”提供给 `inspection_gateway`：
+   - service：`~/get_nav_map`（全名通常为 `/inspection/agv/get_nav_map`）
+   - 类型：`inspection_interface/srv/GetNavMap`
+3. 对外 gRPC 的 `GetNavMap` 由 `inspection_gateway` 实现并做缓存（key 建议用 `map_name + md5`）

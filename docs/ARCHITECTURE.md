@@ -25,8 +25,14 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        上位机 (inspection-api)                   │
-│                   inspection_gateway.proto                        │
+│                        上位机 (inspection-hmi)                    │
+│                     Qt HMI (Engineer/Operator)                    │
+└────────────────────────────┬────────────────────────────────────┘
+                             │ gRPC (inspection-api/proto/inspection_gateway.proto)
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     inspection_gateway (AGX)                      │
+│        对外：gRPC 服务端  对内：调用 ROS2 节点/服务/话题              │
 └────────────────────────────┬────────────────────────────────────┘
                              │
                              ▼
@@ -120,14 +126,14 @@ IDLE ──▶ LOCALIZING ──▶ PLANNING ──▶ EXECUTING ──▶ COMPL
 
 | 状态 | 说明 |
 |------|------|
-| PHASE_IDLE | 空闲，等待任务 |
-| PHASE_LOCALIZING | 检测工件位姿 |
-| PHASE_PLANNING | 规划检测路径 |
-| PHASE_EXECUTING | 执行检测 |
-| PHASE_PAUSED | 任务暂停 |
-| PHASE_COMPLETED | 检测完成 |
-| PHASE_FAILED | 检测失败 |
-| PHASE_STOPPED | 任务停止 |
+| IDLE | 空闲，等待任务 |
+| LOCALIZING | 检测工件位姿 |
+| PLANNING | 规划检测路径 |
+| EXECUTING | 执行检测 |
+| PAUSED | 任务暂停 |
+| COMPLETED | 检测完成 |
+| FAILED | 检测失败 |
+| STOPPED | 任务停止 |
 
 ## 7. ROS 接口
 
@@ -143,7 +149,7 @@ IDLE ──▶ LOCALIZING ──▶ PLANNING ──▶ EXECUTING ──▶ COMPL
 - `~/odom` (Odometry) - 里程计
 
 **服务**：
-- (由 TCP API 提供)
+- `~/get_nav_map` (`inspection_interface/srv/GetNavMap`) - 提供导航底图元信息/底图数据（供 inspection_gateway 对外实现 GetNavMap）
 
 ### 7.2 arm_driver
 
@@ -239,59 +245,23 @@ IDLE ──▶ LOCALIZING ──▶ PLANNING ──▶ EXECUTING ──▶ COMPL
 **服务**：
 - `~/detect` - 触发检测
 
-## 8. 消息定义
+## 8. 消息/服务定义
 
-### SystemState
-```
-uint8 phase              # 当前阶段
-float32 progress_percent # 进度百分比
-string current_action    # 当前动作
-string error_message     # 错误信息
-AgvStatus agv           # AGV 状态
-ArmStatus arm           # 机械臂状态
-```
+为了避免文档与实现漂移，本仓库不在此处复制 `.msg/.srv` 的字段列表。
 
-### AgvStatus
-```
-bool connected          # 连接状态
-bool arrived           # 到位标志
-bool moving            # 运动中
-bool stopped           # 停止标志
-Pose current_pose      # 当前位姿
-float32 battery_percent# 电量
-string error_code      # 错误码
-```
-
-### ArmStatus
-```
-bool connected
-bool arrived
-bool moving
-float64[] current_joints   # 当前关节角
-float32 manipulability      # 可操作度
-string error_code
-```
-
-### DefectInfo
-```
-int32 defect_id
-string defect_type
-float32 confidence
-Point position
-Vector3 size
-Image image
-```
+- 机器人内部接口：`src/inspection_interface/msg`、`src/inspection_interface/srv`
+- 对外契约：`inspection-api/proto/inspection_gateway.proto`
 
 ## 9. TF 树
 
 ```
 map (SLAM全局坐标系)
  └─ base_link (AGV底盘)
-      └─ arm_base (机械臂基座)
-           └─ link1 → link2 → ... → link6
-                └─ tool0 (末端法兰)
-                     ├─ realsense_link
-                     └─ hikvision_link
+      └─ arm_base (机械臂基座，静态标定)
+           └─ ... (URDF 链)
+                └─ tcp (末端工具坐标系，建议与 URDF 一致，例如 elfin_end_link 或 tool0 别名)
+                     ├─ realsense_frame (深度相机)
+                     └─ hikvision_frame (工业相机外参)
 ```
 
 ## 10. 数据流

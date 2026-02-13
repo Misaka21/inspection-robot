@@ -25,6 +25,8 @@
   - `stopped`：底盘静止
   - `error_code`：故障码/错误态
   - `battery_percent`：电量
+- （规划中）提供导航地图能力，供网关对外实现 `GetNavMap`：
+  - service：`/inspection/agv/get_nav_map`（`inspection_interface/srv/GetNavMap`）
 - 必要时发布 `/inspection/agv/odom` 和 `map -> base_link` TF。
 
 ## 3. 与任务流程的耦合点（必须满足）
@@ -44,4 +46,3 @@
 4. 轮询或推送获取位姿、导航状态、速度与阻挡/急停状态。
 5. 输出 ROS 状态字段，供 `task_coordinator` 判定是否可进入机械臂步骤。
 6. 异常时支持取消导航、软急停、清错等恢复动作。
-
