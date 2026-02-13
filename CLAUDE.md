@@ -40,6 +40,18 @@ ros2 launch inspection_bringup drivers.launch.py
 ros2 launch inspection_bringup system.launch.py
 ```
 
+## Launch 文件规范
+
+参考 rm_bringup 和 radar_bringup 的设计：
+
+1. **参数文件驱动**：使用 YAML 配置文件，不在代码中硬编码
+2. **组件容器**：图像类节点使用 `ComposableNodeContainer` 实现进程内通信
+3. **延迟启动**：使用 `TimerAction` 避免竞争条件
+4. **条件编译**：根据参数决定启动哪些节点
+5. **命名空间**：使用 `PushRosNamespace` 统一管理
+
+详细规范见 `docs/ARCHITECTURE.md` 第 13 节。
+
 ## 项目架构
 
 ```

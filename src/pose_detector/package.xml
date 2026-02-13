@@ -17,6 +17,7 @@
   <depend>image_transport</depend>
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
+  <depend>std_srvs</depend>
   <depend>inspection_interface</depend>
 
   <test_depend>ament_lint_auto</test_depend>

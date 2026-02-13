@@ -3,6 +3,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/pose_array.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <inspection_interface/msg/system_state.hpp>
 #include <inspection_interface/srv/start_inspection.hpp>
@@ -82,6 +83,7 @@ private:
 
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr _agv_status_sub;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr _arm_status_sub;
+    rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr _waypoints_sub;
 
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr _pose_detect_client;
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr _plan_client;

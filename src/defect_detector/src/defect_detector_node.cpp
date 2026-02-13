@@ -1,6 +1,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <std_msgs/msg/float32.hpp>
+#include <std_srvs/srv/trigger.hpp>
 #include <inspection_interface/msg/defect_info.hpp>
 
 namespace defect_detector {
@@ -25,6 +26,17 @@ public:
         // 声明参数
         this->declare_parameter("confidence_threshold", 0.7);
         this->declare_parameter("nms_threshold", 0.5);
+
+        // 创建服务
+        detect_srv_ = this->create_service<std_srvs::srv::Trigger>(
+            "~/detect_defect",
+            [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+                   std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+                (void)request;
+                RCLCPP_INFO(this->get_logger(), "Received detect request");
+                response->success = true;
+                response->message = "Defect detection triggered";
+            });
     }
 
 private:
@@ -44,6 +56,7 @@ private:
 
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
     rclcpp::Publisher<inspection_interface::msg::DefectInfo>::SharedPtr result_pub_;
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr detect_srv_;
 };
 
 }  // namespace defect_detector

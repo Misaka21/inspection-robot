@@ -9,6 +9,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(image_transport REQUIRED)
@@ -23,6 +24,7 @@ ament_target_dependencies(
   defect_detector_node
   "rclcpp"
   "std_msgs"
+  "std_srvs"
   "geometry_msgs"
   "sensor_msgs"
   "image_transport"

@@ -2,6 +2,7 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <std_msgs/msg/float32.hpp>
+#include <std_srvs/srv/trigger.hpp>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/buffer.h>
 
@@ -11,29 +12,41 @@ class PoseDetectorNode : public rclcpp::Node {
 public:
     PoseDetectorNode()
         : Node("pose_detector_node"),
-          tf_buffer_(this->get_clock()),
-          tf_listener_(tf_buffer_) {
+          _tf_buffer(this->get_clock()),
+          _tf_listener(_tf_buffer) {
         RCLCPP_INFO(this->get_logger(), "Starting Pose Detector Node");
 
         // 订阅点云
-        cloud_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
+        _cloud_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>(
             "/inspection/realsense/depth/color/points", 10,
             [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
                 process_pointcloud(msg);
             });
 
         // 发布检测到的位姿
-        pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>(
+        _pose_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>(
             "~/detected_pose", 10);
 
         // 发布置信度
-        confidence_pub_ = this->create_publisher<std_msgs::msg::Float32>(
+        _confidence_pub = this->create_publisher<std_msgs::msg::Float32>(
             "~/confidence", 10);
 
         // 声明参数
         this->declare_parameter("algorithm", "icp");
         this->declare_parameter("voxel_size", 0.01);
         this->declare_parameter("max_correspondence_dist", 0.05);
+
+        // 创建服务
+        _detect_srv = this->create_service<std_srvs::srv::Trigger>(
+            "~/detect",
+            [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+                   std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+                (void)request;
+                RCLCPP_INFO(this->get_logger(), "Received detect request");
+                // 触发一次检测（当前是自动检测，服务只是响应确认）
+                response->success = true;
+                response->message = "Detection triggered";
+            });
     }
 
 private:
@@ -46,19 +59,20 @@ private:
         geometry_msgs::msg::PoseStamped pose;
         pose.header = msg->header;
         pose.pose.orientation.w = 1.0;  // 默认朝上
-        pose_pub_->publish(pose);
+        _pose_pub->publish(pose);
 
         std_msgs::msg::Float32 conf;
         conf.data = 1.0;
-        confidence_pub_->publish(conf);
+        _confidence_pub->publish(conf);
     }
 
-    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
-    rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
-    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr confidence_pub_;
+    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr _cloud_sub;
+    rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr _pose_pub;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr _confidence_pub;
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr _detect_srv;
 
-    tf2_ros::Buffer tf_buffer_;
-    tf2_ros::TransformListener tf_listener_;
+    tf2_ros::Buffer _tf_buffer;
+    tf2_ros::TransformListener _tf_listener;
 };
 
 }  // namespace pose_detector

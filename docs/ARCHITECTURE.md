@@ -368,6 +368,173 @@ ros2 launch arm_controller arm_controller.launch.py
 - 避免硬编码绝对话题名
 - 命名空间：`/inspection/*`
 
+## 13. Launch 文件规范（参考 rm_bringup & radar_bring2）
+
+### 13.1 设计原则
+
+| 特性 | 说明 | 参考来源 |
+|------|------|----------|
+| 参数文件驱动 | 使用 YAML 配置文件，不在代码中硬编码 | rm_bringup |
+| 组件容器 | 图像类节点使用 ComposableNodeContainer 实现进程内通信 | 两者都有 |
+| 延迟启动 | 使用 TimerAction 避免竞争条件 | rm_bringup |
+| 条件编译 | 根据参数决定启动哪些节点 | rm_bringup |
+| 命名空间 | 使用 PushRosNamespace 统一管理 | rm_bringup |
+| TF 变换 | 使用函数封装静态变换发布器 | radar_bringup |
+| Debug 模式 | 支持开发/生产模式切换 | radar_bringup |
+
+### 13.2 目录结构
+
+```
+inspection_bringup/
+├── launch/
+│   ├── system.launch.py          # 主启动文件（包含所有层）
+│   ├── drivers.launch.py         # 驱动层（相机、AGV、机械臂）
+│   ├── algorithms.launch.py      # 算法层（检测、规划）
+│   └── ...
+├── config/
+│   ├── launch_params.yaml       # 全局启动参数
+│   ├── node_params/             # 各节点参数
+│   │   ├── task_coordinator_params.yaml
+│   │   ├── pose_detector_params.yaml
+│   │   └── ...
+│   └── config.24.home.yaml       # 场景配置文件
+└── package.xml
+```
+
+### 13.3 参数文件示例
+
+```yaml
+# config/launch_params.yaml
+rune: false                    # 是否启用打符功能
+hero_solver: false             # 是否使用英雄机甲解算
+navigation: false              # 是否启用导航
+namespace: "inspection"        # 命名空间
+video_play: false              # 是否播放视频（调试用）
+virtual_serial: false          # 是否使用虚拟串口
+```
+
+### 13.4 组件容器示例
+
+```python
+# 将相机和检测器放到同一容器，实现零拷贝
+def get_algorithm_container():
+    return ComposableNodeContainer(
+        name='algorithm_container',
+        namespace='inspection',
+        package='rclcpp_components',
+        executable='component_container_isolated',
+        arguments=['--use_multi_threaded_executor'],
+        composable_node_descriptions=[
+            ComposableNode(
+                package='pose_detector',
+                plugin='pose_detector::PoseDetectorNode',
+                name='pose_detector',
+                namespace='inspection/perception',
+                parameters=[node_params],
+                extra_arguments=[{'use_intra_process_comms': True}]  # 启用进程内通信
+            ),
+            ComposableNode(
+                package='defect_detector',
+                plugin='defect_detector::DefectDetectorNode',
+                name='defect_detector',
+                namespace='inspection/perception',
+                parameters=[node_params],
+                extra_arguments=[{'use_intra_process_comms': True}]
+            ),
+        ],
+        output='both',
+        emulate_tty=True,
+        on_exit=Shutdown(),
+    )
+```
+
+### 13.5 延迟启动示例
+
+```python
+# 延迟2秒启动，等待其他节点就绪
+from launch.actions import TimerAction
+
+delay_algorithm_node = TimerAction(
+    period=2.0,
+    actions=[algorithm_container],
+)
+```
+
+### 13.6 TF 变换封装示例
+
+```python
+def get_tf_broadcaster(cali: list, parent_frame: str, child_frame: str):
+    """封装静态 TF 发布器"""
+    return Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name=parent_frame + '_to_' + child_frame,
+        arguments=[
+            '--x', str(cali[0]),
+            '--y', str(cali[1]),
+            '--z', str(cali[2]),
+            '--qx', str(cali[3]),
+            '--qy', str(cali[4]),
+            '--qz', str(cali[5]),
+            '--qw', str(cali[6]),
+            '--frame-id', parent_frame,
+            '--child-frame-id', child_frame,
+        ],
+    )
+```
+
+### 13.7 Debug 模式示例
+
+```python
+debug = False  # 生产环境设为 False
+
+def get_detection_container():
+    if not debug:
+        # 正式环境：使用组件容器（进程内通信）
+        return ComposableNodeContainer(...)
+    else:
+        # 调试环境：使用独立节点（便于查看日志）
+        return Node(...)
+```
+
+### 13.8 完整示例结构
+
+```python
+def generate_launch_description():
+    # 1. 加载参数
+    launch_params = yaml.safe_load(open(...))
+
+    # 2. 定义节点（使用函数封装）
+    drivers = get_drivers_container()
+    algorithms = get_algorithm_container()
+
+    # 3. 延迟启动
+    delay_drivers = TimerAction(period=1.0, actions=[drivers])
+    delay_algorithms = TimerAction(period=2.0, actions=[algorithms])
+
+    # 4. 条件启动
+    launch_list = [delay_drivers, delay_algorithms]
+
+    if launch_params['navigation']:
+        launch_list.append(navigation_node)
+
+    # 5. 添加命名空间
+    push_ns = PushRosNamespace(launch_params['namespace'])
+
+    return LaunchDescription([push_ns] + launch_list)
+```
+
+### 13.9 进程内通信 vs 进程间通信
+
+| 模式 | 适用场景 | 优点 | 缺点 |
+|------|----------|------|------|
+| ComposableNodeContainer | 相机-检测器等高频数据 | 零拷贝、低延迟 | 隔离性差 |
+| 独立 Node | 跨进程通信、低频数据 | 隔离性好 | 有复制开销 |
+
+**建议**：
+- 图像/点云等高频数据使用组件容器
+- 控制命令、低频数据使用独立节点
+
 ## 13. 构建命令
 
 ```bash

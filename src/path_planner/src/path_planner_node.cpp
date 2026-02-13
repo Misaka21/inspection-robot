@@ -2,6 +2,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <std_srvs/srv/trigger.hpp>
 #include <moveit/move_group_interface/move_group_interface.h>
 
 namespace path_planner {
@@ -38,6 +39,18 @@ public:
         this->declare_parameter("arm_reach_min", 0.2);
         this->declare_parameter("candidate_radius", 0.6);
         this->declare_parameter("candidate_yaw_step_deg", 15.0);
+
+        // 创建服务
+        optimize_srv_ = this->create_service<std_srvs::srv::Trigger>(
+            "~/optimize",
+            [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+                   std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+                (void)request;
+                RCLCPP_INFO(this->get_logger(), "Received optimize request");
+                plan();  // 调用规划
+                response->success = true;
+                response->message = "Path optimization triggered";
+            });
     }
 
     void plan() {
@@ -60,6 +73,7 @@ private:
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr workpiece_pose_sub_;
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr agv_pose_sub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr path_pub_;
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr optimize_srv_;
 
     geometry_msgs::msg::PoseStamped workpiece_pose_;
     geometry_msgs::msg::PoseStamped agv_pose_;

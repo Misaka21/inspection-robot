@@ -48,12 +48,19 @@ TaskCoordinatorNode::TaskCoordinatorNode(const rclcpp::NodeOptions& options)
             _arm_arrived = true;
         });
 
+    _waypoints_sub = this->create_subscription<geometry_msgs::msg::PoseArray>(
+        "/inspection/planning/path", 10,
+        [this](const geometry_msgs::msg::PoseArray::SharedPtr msg) {
+            _total_waypoints = msg->poses.size();
+            RCLCPP_INFO(this->get_logger(), "收到路径点，数量: %d", _total_waypoints);
+        });
+
     _pose_detect_client = this->create_client<std_srvs::srv::Trigger>(
         "/inspection/perception/detect");
     _plan_client = this->create_client<std_srvs::srv::Trigger>(
         "/inspection/planning/optimize");
     _defect_detect_client = this->create_client<std_srvs::srv::Trigger>(
-        "/inspection/perception/detect");
+        "/inspection/perception/detect_defect");
 
     _start_srv = this->create_service<inspection_interface::srv::StartInspection>(
         "~/start",
@@ -127,7 +134,16 @@ void TaskCoordinatorNode::handle_localizing() {
         RCLCPP_INFO(this->get_logger(), "触发工件位姿检测...");
         if (_pose_detect_client->wait_for_service(std::chrono::seconds(1))) {
             auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
-            _pose_detect_client->async_send_request(req);
+            auto callback = [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
+                auto response = future.get();
+                if (response->success) {
+                    _pose_detected = true;
+                    RCLCPP_INFO(this->get_logger(), "位姿检测服务返回成功");
+                } else {
+                    RCLCPP_WARN(this->get_logger(), "位姿检测服务返回失败: %s", response->message.c_str());
+                }
+            };
+            _pose_detect_client->async_send_request(req, callback);
             _localizing_triggered = true;
         }
     }
@@ -145,7 +161,16 @@ void TaskCoordinatorNode::handle_planning() {
         RCLCPP_INFO(this->get_logger(), "触发路径规划...");
         if (_plan_client->wait_for_service(std::chrono::seconds(1))) {
             auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
-            _plan_client->async_send_request(req);
+            auto callback = [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
+                auto response = future.get();
+                if (response->success) {
+                    _path_planned = true;
+                    RCLCPP_INFO(this->get_logger(), "路径规划服务返回成功");
+                } else {
+                    RCLCPP_WARN(this->get_logger(), "路径规划服务返回失败: %s", response->message.c_str());
+                }
+            };
+            _plan_client->async_send_request(req, callback);
             _planning_triggered = true;
         }
     }
@@ -203,7 +228,16 @@ void TaskCoordinatorNode::execute_current_waypoint() {
             RCLCPP_INFO(this->get_logger(), "步骤5: 触发缺陷检测");
             if (_defect_detect_client->wait_for_service(std::chrono::seconds(1))) {
                 auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
-                _defect_detect_client->async_send_request(req);
+                auto callback = [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
+                    auto response = future.get();
+                    if (response->success) {
+                        _detection_done = true;
+                        RCLCPP_INFO(this->get_logger(), "缺陷检测服务返回成功");
+                    } else {
+                        RCLCPP_WARN(this->get_logger(), "缺陷检测服务返回失败: %s", response->message.c_str());
+                    }
+                };
+                _defect_detect_client->async_send_request(req, callback);
             }
             _execution_step = 6;
             break;
@@ -372,11 +406,9 @@ std::string TaskCoordinatorNode::get_current_action_string() {
 
 int main(int argc, char* argv[]) {
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<rclcpp::Node>("task_coordinator_node");
     auto coordinator = std::make_shared<task_coordinator::TaskCoordinatorNode>(
         rclcpp::NodeOptions());
-    (void)coordinator;
-    rclcpp::spin(node);
+    rclcpp::spin(coordinator);
     rclcpp::shutdown();
     return 0;
 }
