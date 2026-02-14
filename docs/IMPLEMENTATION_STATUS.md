@@ -4,7 +4,9 @@
 
 ## 1. 当前代码现状（快速结论）
 
-- `inspection_gateway`（gRPC 服务端）：**包骨架已建立**（`src/inspection_gateway/`），但 gRPC handlers/存储/桥接逻辑尚未实现
+- `inspection_gateway`（gRPC 服务端）：**已实现最小可用闭环（P0 子集）**（`src/inspection_gateway/`）
+  - 已有：gRPC server 启动、proto 动态编译加载、ROS2 bridge、CAD/媒体落盘、`Start/Pause/Resume/Stop/GetTaskStatus/SubscribeSystemState/GetNavMap/DownloadMedia`
+  - 缺失：targets/plan/result 的落盘与查询、`PlanInspection/GetPlan/ListCaptures/SubscribeInspectionEvents` 的真实实现
 - 导航地图 `GetNavMap`：
   - ROS2 `inspection_interface/srv/GetNavMap`：**已定义**
   - `agv_driver` `get_nav_map` service server：**缺失**
@@ -21,20 +23,20 @@
 
 | gRPC RPC | 机器人端责任模块（建议） | 建议 ROS2 接口（对内） | 当前状态 |
 |---|---|---|---|
-| `UploadCad` | `inspection_gateway` + `cad_store` | （网关内处理即可） | 缺失 |
-| `SetInspectionTargets` | `inspection_gateway` + `target_store` | `inspection_interface/srv/SetTargets`（待新增） | 缺失 |
+| `UploadCad` | `inspection_gateway` + `cad_store` | （网关内处理即可） | 已实现（落盘 + sha256 model_id） |
+| `SetInspectionTargets` | `inspection_gateway` + `target_store` | `inspection_interface/srv/SetTargets`（待新增） | 网关 stub（仅返回 OK，未落盘） |
 | `PlanInspection` | `inspection_gateway` -> `path_planner` | `inspection_interface/srv/PlanInspection`（待新增，返回 waypoints/stats） | `path_planner` 仅有 Trigger 骨架 |
-| `GetPlan` | `inspection_gateway` + `plan_store` | （网关内处理即可） | 缺失 |
-| `StartInspection` | `inspection_gateway` -> `task_coordinator` | `/inspection/start` (`inspection_interface/srv/StartInspection`) | 已有骨架（字段未对齐 gRPC） |
-| `PauseInspection` | `inspection_gateway` -> `task_coordinator` | `/inspection/pause` (`inspection_interface/srv/PauseInspection`) | 已有骨架 |
-| `ResumeInspection` | `inspection_gateway` -> `task_coordinator` | `/inspection/resume` (`inspection_interface/srv/ResumeInspection`) | 已有骨架 |
-| `StopInspection` | `inspection_gateway` -> `task_coordinator` | `/inspection/stop` (`inspection_interface/srv/StopInspection`) | 已有骨架 |
-| `GetTaskStatus` | `inspection_gateway` -> `task_coordinator` | `/inspection/get_status` (`inspection_interface/srv/GetInspectionStatus`) | 已有骨架（对外仍需网关映射） |
-| `SubscribeSystemState` | `inspection_gateway` 订阅 ROS2 状态并转发 | `/inspection/state` (`inspection_interface/msg/SystemState`) | 已有发布（字段较少） |
-| `SubscribeInspectionEvents` | `inspection_gateway` 订阅事件并转发 | `/inspection/events`（待新增 msg） | 缺失 |
-| `GetNavMap` | `inspection_gateway` 缓存 + `agv_driver` 提供原始能力 | `/inspection/agv/get_nav_map` (`inspection_interface/srv/GetNavMap`) | srv 已定义，server 缺失 |
-| `ListCaptures` | `inspection_gateway` + `media_store`/`result_store` | （网关内处理即可） | 缺失 |
-| `DownloadMedia` | `inspection_gateway` + `media_store` | （网关内处理即可，或暴露 HTTP） | 缺失 |
+| `GetPlan` | `inspection_gateway` + `plan_store` | （网关内处理即可） | 未实现 |
+| `StartInspection` | `inspection_gateway` -> `task_coordinator` | `/inspection/start` (`inspection_interface/srv/StartInspection`) | 已实现（网关->ROS srv） |
+| `PauseInspection` | `inspection_gateway` -> `task_coordinator` | `/inspection/pause` (`inspection_interface/srv/PauseInspection`) | 已实现（网关->ROS srv） |
+| `ResumeInspection` | `inspection_gateway` -> `task_coordinator` | `/inspection/resume` (`inspection_interface/srv/ResumeInspection`) | 已实现（网关->ROS srv） |
+| `StopInspection` | `inspection_gateway` -> `task_coordinator` | `/inspection/stop` (`inspection_interface/srv/StopInspection`) | 已实现（网关->ROS srv） |
+| `GetTaskStatus` | `inspection_gateway` -> `task_coordinator` | `/inspection/get_status` (`inspection_interface/srv/GetInspectionStatus`) | 已实现（ROS SystemState -> gRPC TaskStatus） |
+| `SubscribeSystemState` | `inspection_gateway` 订阅 ROS2 状态并转发 | `/inspection/state` (`inspection_interface/msg/SystemState`) | 已实现（snapshot + stream） |
+| `SubscribeInspectionEvents` | `inspection_gateway` 订阅事件并转发 | `/inspection/events`（待新增 msg） | 未实现 |
+| `GetNavMap` | `inspection_gateway` 缓存 + `agv_driver` 提供原始能力 | `/inspection/agv/get_nav_map` (`inspection_interface/srv/GetNavMap`) | 网关已实现（ROS server 缺失） |
+| `ListCaptures` | `inspection_gateway` + `media_store`/`result_store` | （网关内处理即可） | 网关 stub（UNAVAILABLE） |
+| `DownloadMedia` | `inspection_gateway` + `media_store` | （网关内处理即可，或暴露 HTTP） | 已实现（按 media_id 分块下载） |
 
 ## 3. 代码层级结构建议（effect-first，可分期）
 
