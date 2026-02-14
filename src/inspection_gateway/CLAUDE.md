@@ -29,7 +29,7 @@
 
 强制约束：
 - **禁止** 在 `main.py` 里实现具体业务；`main.py` 只负责进程启动、参数解析、线程模型装配。
-- **禁止** 在 gRPC handler 里做阻塞 ROS 调用（需要统一的 worker / async 调度）。
+- gRPC handler 要保持薄：允许 unary RPC 同步等待 ROS srv（通过 `ros/bridge.py` 的 Event+timeout，不在 handler 里 spin），不要把复杂业务/规划塞进 handler。
 
 ## 3. gRPC <-> ROS2 映射（V1 目标）
 
@@ -62,4 +62,3 @@
   - `../../docs/ARCHITECTURE.md`
   - 相关包 `../*/CLAUDE.md`
   - `../../TODO.md`
-
