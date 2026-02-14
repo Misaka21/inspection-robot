@@ -2,9 +2,14 @@
 #define TASK_COORDINATOR_NODE_HPP
 
 #include <rclcpp/rclcpp.hpp>
+#include <string>
+#include <vector>
+
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
+#include <inspection_interface/msg/agv_status.hpp>
+#include <inspection_interface/msg/arm_status.hpp>
 #include <inspection_interface/msg/system_state.hpp>
 #include <inspection_interface/srv/start_inspection.hpp>
 #include <inspection_interface/srv/stop_inspection.hpp>
@@ -60,8 +65,13 @@ private:
     int _execution_step;
     bool _last_step_done;
 
-    geometry_msgs::msg::PoseStamped _last_agv_pose;
-    sensor_msgs::msg::JointState _last_arm_joints;
+    inspection_interface::msg::AgvStatus _last_agv_status;
+    inspection_interface::msg::ArmStatus _last_arm_status;
+    bool _has_agv_status{false};
+    bool _has_arm_status{false};
+
+    std::vector<geometry_msgs::msg::Pose> _waypoints;
+    std::string _waypoints_frame_id{"map"};
     geometry_msgs::msg::PoseStamped _detected_pose;
 
     bool _pose_detected;
@@ -81,8 +91,8 @@ private:
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr _arm_goal_pub;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr _arm_joint_pub;
 
-    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr _agv_status_sub;
-    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr _arm_status_sub;
+    rclcpp::Subscription<inspection_interface::msg::AgvStatus>::SharedPtr _agv_status_sub;
+    rclcpp::Subscription<inspection_interface::msg::ArmStatus>::SharedPtr _arm_status_sub;
     rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr _waypoints_sub;
 
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr _pose_detect_client;

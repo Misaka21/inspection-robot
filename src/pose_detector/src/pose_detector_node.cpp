@@ -18,18 +18,18 @@ public:
 
         // 订阅点云
         _cloud_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-            "/inspection/realsense/depth/color/points", 10,
+            "/inspection/realsense/d435/depth/color/points", 10,
             [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
                 process_pointcloud(msg);
             });
 
         // 发布检测到的位姿
         _pose_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>(
-            "~/detected_pose", 10);
+            "detected_pose", 10);
 
         // 发布置信度
         _confidence_pub = this->create_publisher<std_msgs::msg::Float32>(
-            "~/confidence", 10);
+            "confidence", 10);
 
         // 声明参数
         this->declare_parameter("algorithm", "icp");
@@ -38,7 +38,7 @@ public:
 
         // 创建服务
         _detect_srv = this->create_service<std_srvs::srv::Trigger>(
-            "~/detect",
+            "detect",
             [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                    std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
                 (void)request;

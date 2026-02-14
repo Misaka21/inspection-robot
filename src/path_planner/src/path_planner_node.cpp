@@ -31,7 +31,7 @@ public:
 
         // 发布规划路径
         _path_pub = this->create_publisher<geometry_msgs::msg::PoseArray>(
-            "~/path", 10);
+            "path", 10);
 
         // 声明参数
         this->declare_parameter("camera_working_dist", 0.3);
@@ -42,7 +42,7 @@ public:
 
         // 创建服务
         _optimize_srv = this->create_service<std_srvs::srv::Trigger>(
-            "~/optimize",
+            "optimize",
             [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                    std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
                 (void)request;

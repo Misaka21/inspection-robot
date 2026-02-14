@@ -11,24 +11,24 @@ namespace arm_driver
 void ArmDriverNode::setup_ros_interfaces()
 {
   joint_cmd_sub_ = node_->create_subscription<sensor_msgs::msg::JointState>(
-    "~/joint_cmd",
+    "joint_cmd",
     10,
     std::bind(&ArmDriverNode::on_joint_command, this, std::placeholders::_1));
 
   joint_states_pub_ = node_->create_publisher<sensor_msgs::msg::JointState>("/joint_states", 10);
-  status_pub_ = node_->create_publisher<inspection_interface::msg::ArmStatus>("~/status", 10);
+  status_pub_ = node_->create_publisher<inspection_interface::msg::ArmStatus>("status", 10);
 
   enable_srv_ = node_->create_service<std_srvs::srv::Trigger>(
-    "~/enable",
+    "enable",
     std::bind(&ArmDriverNode::on_enable, this, std::placeholders::_1, std::placeholders::_2));
   disable_srv_ = node_->create_service<std_srvs::srv::Trigger>(
-    "~/disable",
+    "disable",
     std::bind(&ArmDriverNode::on_disable, this, std::placeholders::_1, std::placeholders::_2));
   clear_fault_srv_ = node_->create_service<std_srvs::srv::Trigger>(
-    "~/clear_fault",
+    "clear_fault",
     std::bind(&ArmDriverNode::on_clear_fault, this, std::placeholders::_1, std::placeholders::_2));
   stop_srv_ = node_->create_service<std_srvs::srv::Trigger>(
-    "~/stop",
+    "stop",
     std::bind(&ArmDriverNode::on_stop, this, std::placeholders::_1, std::placeholders::_2));
 
   const auto safe_hz = [](const double hz) {

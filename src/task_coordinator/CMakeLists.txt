@@ -30,6 +30,9 @@ ament_target_dependencies(
 install(TARGETS task_coordinator_node
   DESTINATION lib/${PROJECT_NAME})
 
+install(DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME})
+
 install(DIRECTORY include
   DESTINATION share/${PROJECT_NAME})
 

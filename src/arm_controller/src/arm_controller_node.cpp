@@ -55,19 +55,19 @@ public:
 
     stream_trajectory_ = node_->declare_parameter<bool>("stream_trajectory", true);
     arm_driver_joint_cmd_topic_ = node_->declare_parameter<std::string>(
-      "arm_driver_joint_cmd_topic", "/inspection/arm/arm_driver/joint_cmd");
+      "arm_driver_joint_cmd_topic", "/inspection/arm/joint_cmd");
 
     auto_enable_driver_ = node_->declare_parameter<bool>("auto_enable_driver", false);
     arm_driver_enable_service_ = node_->declare_parameter<std::string>(
-      "arm_driver_enable_service", "/inspection/arm/arm_driver/enable");
+      "arm_driver_enable_service", "/inspection/arm/enable");
 
     joint_cmd_pub_ = node_->create_publisher<sensor_msgs::msg::JointState>(arm_driver_joint_cmd_topic_, 10);
 
-    motion_status_pub_ = node_->create_publisher<std_msgs::msg::String>("~/motion_status", 10);
-    trajectory_progress_pub_ = node_->create_publisher<std_msgs::msg::Float64>("~/trajectory_progress", 10);
+    motion_status_pub_ = node_->create_publisher<std_msgs::msg::String>("motion_status", 10);
+    trajectory_progress_pub_ = node_->create_publisher<std_msgs::msg::Float64>("trajectory_progress", 10);
 
     velocity_scaling_sub_ = node_->create_subscription<std_msgs::msg::Float64>(
-      "~/velocity_scaling",
+      "velocity_scaling",
       10,
       [this](const std_msgs::msg::Float64::SharedPtr msg) {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -75,7 +75,7 @@ public:
       });
 
     cart_goal_sub_ = node_->create_subscription<geometry_msgs::msg::PoseStamped>(
-      "~/cart_goal",
+      "cart_goal",
       10,
       [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
         // Fire-and-forget behavior: plan + execute in callback thread.
@@ -83,7 +83,7 @@ public:
       });
 
     joint_goal_sub_ = node_->create_subscription<sensor_msgs::msg::JointState>(
-      "~/joint_goal",
+      "joint_goal",
       10,
       [this](const sensor_msgs::msg::JointState::SharedPtr msg) {
         // Direct joint command passthrough (controller layer responsibility ends here).
@@ -94,7 +94,7 @@ public:
       });
 
     move_to_pose_srv_ = node_->create_service<inspection_interface::srv::MoveToPose>(
-      "~/move_to_pose",
+      "move_to_pose",
       [this](
         const std::shared_ptr<inspection_interface::srv::MoveToPose::Request> req,
         std::shared_ptr<inspection_interface::srv::MoveToPose::Response> resp) {

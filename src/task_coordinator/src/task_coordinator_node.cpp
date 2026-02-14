@@ -26,72 +26,78 @@ TaskCoordinatorNode::TaskCoordinatorNode(const rclcpp::NodeOptions& options)
     this->get_parameter("arm_timeout_sec", _arm_timeout_sec);
     this->get_parameter("detection_timeout_sec", _detection_timeout_sec);
 
-    _state_pub = this->create_publisher<SystemState>("/inspection/state", 10);
+    // Public ROS API: keep topic/service names stable (do not depend on node name).
+    // This node is expected to run in namespace "/inspection".
+    _state_pub = this->create_publisher<SystemState>("state", 10);
     _agv_goal_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>(
-        "/inspection/agv/goal_pose", 10);
+        "agv/goal_pose", 10);
     _arm_goal_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>(
-        "/inspection/arm_control/cart_goal", 10);
+        "arm_control/cart_goal", 10);
     _arm_joint_pub = this->create_publisher<sensor_msgs::msg::JointState>(
-        "/inspection/arm_control/joint_goal", 10);
+        "arm_control/joint_goal", 10);
 
-    _agv_status_sub = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-        "/inspection/agv/current_pose", 10,
-        [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
-            _last_agv_pose = *msg;
-            _agv_arrived = true;
+    _agv_status_sub = this->create_subscription<inspection_interface::msg::AgvStatus>(
+        "agv/status", 10,
+        [this](const inspection_interface::msg::AgvStatus::SharedPtr msg) {
+            _last_agv_status = *msg;
+            _has_agv_status = true;
+            _agv_arrived = msg->connected && msg->arrived && msg->stopped && (msg->error_code == "OK");
         });
 
-    _arm_status_sub = this->create_subscription<sensor_msgs::msg::JointState>(
-        "/joint_states", 10,
-        [this](const sensor_msgs::msg::JointState::SharedPtr msg) {
-            _last_arm_joints = *msg;
-            _arm_arrived = true;
+    _arm_status_sub = this->create_subscription<inspection_interface::msg::ArmStatus>(
+        "arm/status", 10,
+        [this](const inspection_interface::msg::ArmStatus::SharedPtr msg) {
+            _last_arm_status = *msg;
+            _has_arm_status = true;
+            _arm_arrived = msg->connected && msg->arrived && (msg->error_code.empty() || msg->error_code == "OK");
         });
 
     _waypoints_sub = this->create_subscription<geometry_msgs::msg::PoseArray>(
-        "/inspection/planning/path", 10,
+        "planning/path", 10,
         [this](const geometry_msgs::msg::PoseArray::SharedPtr msg) {
-            _total_waypoints = msg->poses.size();
-            RCLCPP_INFO(this->get_logger(), "收到路径点，数量: %d", _total_waypoints);
+            _waypoints = msg->poses;
+            _total_waypoints = static_cast<int>(_waypoints.size());
+            _waypoints_frame_id = msg->header.frame_id.empty() ? "map" : msg->header.frame_id;
+            RCLCPP_INFO(this->get_logger(), "收到路径点，数量: %d frame_id=%s", _total_waypoints, _waypoints_frame_id.c_str());
         });
 
     _pose_detect_client = this->create_client<std_srvs::srv::Trigger>(
-        "/inspection/perception/detect");
+        "perception/detect");
     _plan_client = this->create_client<std_srvs::srv::Trigger>(
-        "/inspection/planning/optimize");
+        "planning/optimize");
     _defect_detect_client = this->create_client<std_srvs::srv::Trigger>(
-        "/inspection/perception/detect_defect");
+        "perception/detect_defect");
 
     _start_srv = this->create_service<inspection_interface::srv::StartInspection>(
-        "~/start",
+        "start",
         [this](const inspection_interface::srv::StartInspection::Request::SharedPtr req,
                inspection_interface::srv::StartInspection::Response::SharedPtr res) {
             start_inspection(req, res);
         });
 
     _stop_srv = this->create_service<inspection_interface::srv::StopInspection>(
-        "~/stop",
+        "stop",
         [this](const inspection_interface::srv::StopInspection::Request::SharedPtr req,
                inspection_interface::srv::StopInspection::Response::SharedPtr res) {
             stop_inspection(req, res);
         });
 
     _pause_srv = this->create_service<inspection_interface::srv::PauseInspection>(
-        "~/pause",
+        "pause",
         [this](const inspection_interface::srv::PauseInspection::Request::SharedPtr req,
                inspection_interface::srv::PauseInspection::Response::SharedPtr res) {
             pause_inspection(req, res);
         });
 
     _resume_srv = this->create_service<inspection_interface::srv::ResumeInspection>(
-        "~/resume",
+        "resume",
         [this](const inspection_interface::srv::ResumeInspection::Request::SharedPtr req,
                inspection_interface::srv::ResumeInspection::Response::SharedPtr res) {
             resume_inspection(req, res);
         });
 
     _status_srv = this->create_service<inspection_interface::srv::GetInspectionStatus>(
-        "~/get_status",
+        "get_status",
         [this](const inspection_interface::srv::GetInspectionStatus::Request::SharedPtr req,
                inspection_interface::srv::GetInspectionStatus::Response::SharedPtr res) {
             get_status(req, res);
@@ -202,8 +208,22 @@ void TaskCoordinatorNode::execute_current_waypoint() {
             }
             break;
         case 1:
-            RCLCPP_INFO(this->get_logger(), "步骤1: 下发 AGV 目标 (waypoint %d/%d)",
-                       _current_waypoint_index + 1, _total_waypoints);
+            RCLCPP_INFO(
+                this->get_logger(),
+                "步骤1: 下发 AGV 目标 (waypoint %d/%d)",
+                _current_waypoint_index + 1,
+                _total_waypoints);
+            _agv_arrived = false;
+            if (_current_waypoint_index >= 0 &&
+                _current_waypoint_index < static_cast<int>(_waypoints.size())) {
+                geometry_msgs::msg::PoseStamped goal;
+                goal.header.stamp = this->now();
+                goal.header.frame_id = _waypoints_frame_id;
+                goal.pose = _waypoints[static_cast<size_t>(_current_waypoint_index)];
+                _agv_goal_pub->publish(goal);
+            } else {
+                RCLCPP_WARN(this->get_logger(), "当前 waypoint pose 不可用，跳过下发");
+            }
             _execution_step = 2;
             break;
         case 2:
@@ -277,6 +297,8 @@ void TaskCoordinatorNode::start_inspection(
     _planning_triggered = false;
     _execution_step = 1;
     _last_step_done = false;
+    _waypoints.clear();
+    _waypoints_frame_id = "map";
 
     set_phase(SystemState::PHASE_LOCALIZING);
     res->success = true;
@@ -336,9 +358,16 @@ void TaskCoordinatorNode::get_status(
     res->message = "ok";
     res->status = get_current_action_string();
     res->progress = calculate_progress();
+    res->state.header.stamp = this->now();
     res->state.phase = _current_phase;
     res->state.progress_percent = calculate_progress();
     res->state.current_action = get_current_action_string();
+    if (_has_agv_status) {
+        res->state.agv = _last_agv_status;
+    }
+    if (_has_arm_status) {
+        res->state.arm = _last_arm_status;
+    }
 }
 
 void TaskCoordinatorNode::set_phase(uint8_t phase) {
@@ -372,9 +401,16 @@ float TaskCoordinatorNode::calculate_progress() {
 
 void TaskCoordinatorNode::publish_state() {
     SystemState state;
+    state.header.stamp = this->now();
     state.phase = _current_phase;
     state.progress_percent = calculate_progress();
     state.current_action = get_current_action_string();
+    if (_has_agv_status) {
+        state.agv = _last_agv_status;
+    }
+    if (_has_arm_status) {
+        state.arm = _last_arm_status;
+    }
     _state_pub->publish(state);
 }
 

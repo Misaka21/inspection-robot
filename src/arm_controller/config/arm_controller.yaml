@@ -12,9 +12,8 @@
     stream_trajectory: true
 
     # arm_driver expects a JointState command on its joint_cmd topic.
-    # NOTE: arm_driver uses node-private name (~/joint_cmd), so the default includes node name.
-    arm_driver_joint_cmd_topic: "/inspection/arm/arm_driver/joint_cmd"
+    arm_driver_joint_cmd_topic: "/inspection/arm/joint_cmd"
 
     # Optional: auto-enable arm_driver before executing.
     auto_enable_driver: false
-    arm_driver_enable_service: "/inspection/arm/arm_driver/enable"
+    arm_driver_enable_service: "/inspection/arm/enable"

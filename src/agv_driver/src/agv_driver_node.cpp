@@ -88,21 +88,22 @@ public:
     _agv_client = std::make_unique<AgvClient>(_agv_ip, _protocol_version, _request_timeout_ms);
     _agv_client->set_log_io(log_io, static_cast<size_t>(std::max(0, log_io_max_chars)));
 
+    // Public ROS API: avoid node-private (~/) names so other nodes don't depend on node name.
     _goal_sub = create_subscription<geometry_msgs::msg::PoseStamped>(
-      "~/goal_pose", 10,
+      "goal_pose", 10,
       [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
         on_goal_pose(msg);
       });
 
     _cmd_vel_sub = create_subscription<geometry_msgs::msg::Twist>(
-      "~/cmd_vel", 10,
+      "cmd_vel", 10,
       [this](const geometry_msgs::msg::Twist::SharedPtr msg) {
         on_cmd_vel(msg);
       });
 
-    _current_pose_pub = create_publisher<geometry_msgs::msg::PoseStamped>("~/current_pose", 10);
-    _odom_pub = create_publisher<nav_msgs::msg::Odometry>("~/odom", 10);
-    _status_pub = create_publisher<inspection_interface::msg::AgvStatus>("~/status", 10);
+    _current_pose_pub = create_publisher<geometry_msgs::msg::PoseStamped>("current_pose", 10);
+    _odom_pub = create_publisher<nav_msgs::msg::Odometry>("odom", 10);
+    _status_pub = create_publisher<inspection_interface::msg::AgvStatus>("status", 10);
 
     if (_publish_tf) {
       _tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(*this);

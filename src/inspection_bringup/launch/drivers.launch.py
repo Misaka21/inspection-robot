@@ -30,7 +30,7 @@ def get_camera_container():
                 package='hikvision_driver',
                 plugin='hikvision_driver::HikvisionDriverNode',
                 name='hikvision_driver',
-                namespace='inspection/hikvision',
+                namespace='hikvision',
                 parameters=[node_params],
                 extra_arguments=[{'use_intra_process_comms': True}]
             ),

@@ -21,7 +21,7 @@ public:
 
         // 发布检测结果
         _result_pub = this->create_publisher<inspection_interface::msg::DefectInfo>(
-            "~/result", 10);
+            "result", 10);
 
         // 声明参数
         this->declare_parameter("confidence_threshold", 0.7);
@@ -29,7 +29,7 @@ public:
 
         // 创建服务
         _detect_srv = this->create_service<std_srvs::srv::Trigger>(
-            "~/detect_defect",
+            "detect_defect",
             [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                    std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
                 (void)request;
