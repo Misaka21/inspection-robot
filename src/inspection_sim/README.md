@@ -11,13 +11,29 @@
 
 ## 快速开始（规划）
 
-> 本包的节点/launch 会在后续实现；本 README 先定义边界与验收口径，避免实现时接口漂移。
+启动仿真系统（无硬件）：
 
-建议用法（无硬件）：
+```bash
+ros2 launch inspection_sim sim_system.launch.py
+```
 
-1. 启动仿真系统（fake agv/arm/perception/planning/defect）+ `task_coordinator` + `inspection_gateway`
-2. 通过 gRPC 调用 `StartInspection`
-3. 观察 `/inspection/state` 与 gRPC `SubscribeSystemState` 是否稳定推进至 COMPLETED
+如需同时启动 `inspection_gateway`（用于 HMI/gRPC 联调）：
+
+```bash
+ros2 launch inspection_sim sim_system.launch.py with_gateway:=true grpc_port:=50051
+```
+
+执行任务（ROS2 侧）：
+
+```bash
+ros2 service call /inspection/start inspection_interface/srv/StartInspection "{legacy_task_id: 0, plan_id: \"sim\", inspection_type: \"\", dry_run: false}"
+```
+
+观察状态：
+
+```bash
+ros2 topic echo /inspection/state
+```
 
 ## 设计目标
 
@@ -96,4 +112,3 @@ elfin_joint1 ... elfin_joint6
   - `ros2 service call /inspection/start ...`（或通过 gRPC `StartInspection`）能启动任务
   - 状态机能推进：IDLE -> LOCALIZING -> PLANNING -> EXECUTING -> COMPLETED
   - `/inspection/state` 与 gRPC `SubscribeSystemState` 能稳定输出状态
-

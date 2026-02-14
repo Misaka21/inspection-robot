@@ -111,6 +111,7 @@
 | `inspection_gateway` | 对外 gRPC 网关（HMI <-> ROS2 桥接） |
 | `inspection_bringup` | 启动管理 |
 | `inspection_supervisor` | 系统监控 |
+| `inspection_sim` | 无硬件联调（fake drivers + sim launch） |
 
 ## 5. API 优先级
 

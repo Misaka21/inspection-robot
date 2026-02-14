@@ -14,7 +14,7 @@
 - [x] 支持控制面：`Start/Pause/Resume/Stop/GetTaskStatus/SubscribeSystemState`
 - [x] 支持导航底图：`GetNavMap`（网关侧已实现；依赖 ROS `agv_driver/get_nav_map`）
 - [x] 支持媒体下载：`DownloadMedia`（网关侧 `media_store` 已实现）
-- [ ] 新增 `inspection_sim`：无硬件端到端联调（fake agv/arm/perception/planning/defect + sim launch），用于验证状态机/门控/网关与论文实验复现
+- [x] 新增 `inspection_sim`：无硬件端到端联调（fake agv/arm/perception/planning/defect + sim launch），用于验证状态机/门控/网关与论文实验复现
 - [ ] `agv_driver` 实现 `get_nav_map` service server（优先返回 map_id/resolution/origin/thumbnail；底图可渐进增强）
 - [ ] `task_coordinator` 补齐“按 waypoint 执行”的真实下发：AGV goal -> 等到位停止 -> 机械臂动作 -> 触发相机/检测 -> 推进进度
 - [ ] 取图链路最小化可回显：抓拍图落盘成可下载 `media_id` + 能被 HMI 列表/回看（`ListCaptures` + thumbnail）

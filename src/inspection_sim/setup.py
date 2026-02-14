@@ -9,6 +9,7 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml", "README.md", "CLAUDE.md"]),
+        ("share/" + package_name + "/launch", ["launch/sim_system.launch.py"]),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -18,7 +19,12 @@ setup(
     license="MIT",
     tests_require=["pytest"],
     entry_points={
-        "console_scripts": [],
+        "console_scripts": [
+            "fake_agv = inspection_sim.nodes.fake_agv_node:main",
+            "fake_arm = inspection_sim.nodes.fake_arm_node:main",
+            "fake_perception = inspection_sim.nodes.fake_perception_node:main",
+            "fake_planning = inspection_sim.nodes.fake_planning_node:main",
+            "fake_defect = inspection_sim.nodes.fake_defect_node:main",
+        ],
     },
 )
-
