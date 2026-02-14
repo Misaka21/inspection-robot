@@ -44,7 +44,7 @@ arm_driver/
 
 ### 订阅
 
-- `~/joint_cmd` (`sensor_msgs/msg/JointState`)
+- `joint_cmd` (`sensor_msgs/msg/JointState`)
   - 支持两种输入：
     - 带 `name[]`：按关节名匹配
     - 不带 `name[]`：按 `command_joint_names` 顺序匹配
@@ -52,14 +52,14 @@ arm_driver/
 ### 发布
 
 - `/joint_states` (`sensor_msgs/msg/JointState`)
-- `~/status` (`inspection_interface/msg/ArmStatus`)
+- `status` (`inspection_interface/msg/ArmStatus`)
 
 ### 服务
 
-- `~/enable` (`std_srvs/srv/Trigger`)
-- `~/disable` (`std_srvs/srv/Trigger`)
-- `~/clear_fault` (`std_srvs/srv/Trigger`)
-- `~/stop` (`std_srvs/srv/Trigger`)
+- `enable` (`std_srvs/srv/Trigger`)
+- `disable` (`std_srvs/srv/Trigger`)
+- `clear_fault` (`std_srvs/srv/Trigger`)
+- `stop` (`std_srvs/srv/Trigger`)
 
 ## 参数说明（arm_driver.yaml）
 
@@ -67,9 +67,9 @@ arm_driver/
 
 - `elfin_ethernet_name`: EtherCAT 网卡名（默认 `eth0`）
 - `state_publish_rate_hz`: `/joint_states` 发布频率
-- `status_publish_rate_hz`: `~/status` 发布频率
+- `status_publish_rate_hz`: `status` 发布频率
 - `motion_threshold`: 运动判定阈值
-- `stop_disable_motors`: `~/stop` 后是否自动去使能
+- `stop_disable_motors`: `stop` 后是否自动去使能
 - `command_joint_names`: 无 `name[]` 指令时的输入关节顺序
 
 底层 EtherCAT 参数（由 `elfin_ethercat_driver` 读取）：
@@ -143,6 +143,6 @@ colcon build --packages-select arm_driver
 ## 常见问题
 
 1. 启动时报网卡错误：检查 `elfin_ethernet_name` 是否对应 EtherCAT 实际网口。
-2. 机械臂不动且 `status.error_code=DISABLED`：先调用 `~/enable`。
-3. 状态异常或报警：先调用 `~/clear_fault`，再 `~/enable`。
+2. 机械臂不动且 `status.error_code=DISABLED`：先调用 `enable`。
+3. 状态异常或报警：先调用 `clear_fault`，再 `enable`。
 4. 关节跳变明显：优先检查 `count_zeros`、`joint_names` 顺序是否与真机一致。

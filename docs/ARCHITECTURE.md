@@ -140,40 +140,40 @@ IDLE ──▶ LOCALIZING ──▶ PLANNING ──▶ EXECUTING ──▶ COMPL
 ### 7.1 agv_driver
 
 **订阅**：
-- `~/goal_pose` (PoseStamped) - 导航目标（map坐标系）
-- `~/cmd_vel` (Twist) - 手动速度指令
+- `goal_pose` (PoseStamped) - 导航目标（map坐标系）
+- `cmd_vel` (Twist) - 手动速度指令
 
 **发布**：
-- `~/status` (AgvStatus) - 底盘状态
-- `~/current_pose` (PoseStamped) - 当前位姿
-- `~/odom` (Odometry) - 里程计
+- `status` (AgvStatus) - 底盘状态
+- `current_pose` (PoseStamped) - 当前位姿
+- `odom` (Odometry) - 里程计
 
 **服务**：
-- `~/get_nav_map` (`inspection_interface/srv/GetNavMap`) - 提供导航底图元信息/底图数据（供 inspection_gateway 对外实现 GetNavMap）
+- `get_nav_map` (`inspection_interface/srv/GetNavMap`) - 提供导航底图元信息/底图数据（供 inspection_gateway 对外实现 GetNavMap）
 
 ### 7.2 arm_driver
 
 **订阅**：
-- `~/joint_cmd` (JointState) - 关节指令
+- `joint_cmd` (JointState) - 关节指令
 
 **发布**：
 - `/joint_states` (JointState) - 关节状态
-- `~/status` (ArmStatus) - 机械臂状态
+- `status` (ArmStatus) - 机械臂状态
 
 **服务**：
-- `~/enable` - 使能
-- `~/disable` - 禁用
-- `~/clear_fault` - 清除故障
-- `~/stop` - 停止
+- `enable` - 使能
+- `disable` - 禁用
+- `clear_fault` - 清除故障
+- `stop` - 停止
 
 ### 7.3 hikvision_driver
 
 **发布**：
-- `~/image_raw` (Image) - 原始图像
-- `~/camera_info` (CameraInfo) - 相机参数
+- `image_raw` (Image) - 原始图像
+- `camera_info` (CameraInfo) - 相机参数
 
 **服务**：
-- `~/trigger` - 触发拍照
+- `trigger_capture` (`std_srvs/srv/Trigger`) - 触发拍照
 
 ### 7.4 realsense_driver
 
@@ -200,15 +200,16 @@ IDLE ──▶ LOCALIZING ──▶ PLANNING ──▶ EXECUTING ──▶ COMPL
 - `/inspection/arm_control/joint_goal` (JointState) - 机械臂关节目标
 
 **订阅**：
-- `/inspection/agv/current_pose` - AGV 当前位姿
-- `/joint_states` - 机械臂关节状态
+- `/inspection/agv/status` (AgvStatus) - AGV 状态（用于 arrived/stopped 门控）
+- `/inspection/arm/status` (ArmStatus) - 机械臂状态（用于 arrived 门控）
+- `/inspection/planning/path` (PoseArray) - 规划点序列（工程骨架）
 
 **服务**：
-- `~/start` - 启动任务
-- `~/stop` - 停止任务
-- `~/pause` - 暂停任务
-- `~/resume` - 恢复任务
-- `~/get_status` - 获取状态
+- `/inspection/start` - 启动任务
+- `/inspection/stop` - 停止任务
+- `/inspection/pause` - 暂停任务
+- `/inspection/resume` - 恢复任务
+- `/inspection/get_status` - 获取状态
 
 ### 7.6 pose_detector
 
@@ -216,11 +217,11 @@ IDLE ──▶ LOCALIZING ──▶ PLANNING ──▶ EXECUTING ──▶ COMPL
 - `/inspection/realsense/d435/depth/color/points` (PointCloud2)
 
 **发布**：
-- `~/detected_pose` (PoseStamped) - 检测到位姿
-- `~/confidence` (Float32) - 置信度
+- `detected_pose` (PoseStamped) - 检测到位姿
+- `confidence` (Float32) - 置信度
 
 **服务**：
-- `~/detect` - 触发检测
+- `detect` - 触发检测
 
 ### 7.7 path_planner
 
@@ -229,10 +230,10 @@ IDLE ──▶ LOCALIZING ──▶ PLANNING ──▶ EXECUTING ──▶ COMPL
 - `/inspection/agv/current_pose` - AGV 当前位姿
 
 **发布**：
-- `~/path` (PoseArray) - 规划路径
+- `path` (PoseArray) - 规划路径
 
 **服务**：
-- `~/optimize` - 触发规划
+- `optimize` - 触发规划
 
 ### 7.8 defect_detector
 
@@ -240,10 +241,10 @@ IDLE ──▶ LOCALIZING ──▶ PLANNING ──▶ EXECUTING ──▶ COMPL
 - `/inspection/hikvision/image_raw` (Image)
 
 **发布**：
-- `~/result` (DefectInfo) - 检测结果
+- `result` (DefectInfo) - 检测结果
 
 **服务**：
-- `~/detect` - 触发检测
+- `detect_defect` - 触发检测
 
 ## 8. 消息/服务定义
 
@@ -288,7 +289,7 @@ for waypoint in path:
     task_coordinator → agv_driver (goal_pose)
     wait arrived && stopped
     task_coordinator → arm_controller (MoveJ)
-    task_coordinator → hikvision_driver (trigger)
+    task_coordinator → hikvision_driver (trigger_capture)
     hikvision_driver → defect_detector (image)
     defect_detector → task_coordinator (result)
 ```
@@ -334,7 +335,8 @@ ros2 launch arm_controller arm_controller.launch.py
 ```
 
 ### 12.5 话题命名
-- 使用相对话题名 `~/topic`
+- **跨包/对外 ROS API**：使用相对话题名 `topic`（不以 `/` 或 `~` 开头），由 launch 的 `namespace` 固定前缀
+- `~/` 仅用于节点私有的内部调试话题
 - 避免硬编码绝对话题名
 - 命名空间：`/inspection/*`
 
@@ -576,7 +578,7 @@ agv_ready = connected && arrived && stopped && (error_code == "OK")
 2. 目标点被拒绝：检查坐标系是否为 `map`
 
 ### arm_driver
-1. 机械臂不动：先调用 `~/enable`
+1. 机械臂不动：先调用 `enable`
 2. 关节跳变：检查 `count_zeros` 标定值
 
 ### hikvision_driver

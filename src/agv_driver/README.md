@@ -34,24 +34,24 @@ ros2 launch agv_driver agv_driver.launch.py \
 
 订阅：
 
-- `~/goal_pose` (`geometry_msgs/msg/PoseStamped`)
+- `goal_pose` (`geometry_msgs/msg/PoseStamped`)
   - 导航目标（应为 `map_frame_id` 坐标系）
   - 若 `header.frame_id` 非空且不等于 `map_frame_id`，会被拒绝并节流告警
-- `~/cmd_vel` (`geometry_msgs/msg/Twist`)
+- `cmd_vel` (`geometry_msgs/msg/Twist`)
   - 开环调试速度
   - `stop_on_zero_cmd_vel=true` 时零速度会转为 `2000` 停止开环
 
 发布：
 
-- `~/status` (`inspection_interface/msg/AgvStatus`)
+- `status` (`inspection_interface/msg/AgvStatus`)
   - 每个轮询周期都会发布（断连也会发布 `connected=false`）
-- `~/current_pose` (`geometry_msgs/msg/PoseStamped`)
-- `~/odom` (`nav_msgs/msg/Odometry`)
+- `current_pose` (`geometry_msgs/msg/PoseStamped`)
+- `odom` (`nav_msgs/msg/Odometry`)
 - TF（可选）：`map_frame_id -> base_frame_id`
 
 说明：
 
-- `~/current_pose`、`~/odom`、TF 只有在内部存在有效位姿时才会发布；断连后可能继续发布上一次有效位姿，同时 `status.connected=false`。
+- `current_pose`、`odom`、TF 只有在内部存在有效位姿时才会发布；断连后可能继续发布上一次有效位姿，同时 `status.connected=false`。
 
 ### 到位门控（推荐）
 
@@ -121,6 +121,6 @@ HMI 的导航视图通常需要“底图 + 分辨率 + 原点”。地图文件�
 
 1. 在 `agv_driver` 内封装上述厂商 API（保持“厂商协议不外泄”的分层原则）
 2. 通过 ROS2 service 把“解析后的 map 元信息 + 底图”提供给 `inspection_gateway`：
-   - service：`~/get_nav_map`（全名通常为 `/inspection/agv/get_nav_map`）
+   - service：`get_nav_map`（全名通常为 `/inspection/agv/get_nav_map`）
    - 类型：`inspection_interface/srv/GetNavMap`
 3. 对外 gRPC 的 `GetNavMap` 由 `inspection_gateway` 实现并做缓存（key 建议用 `map_name + md5`）
