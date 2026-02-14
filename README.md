@@ -76,6 +76,7 @@ bringup 是统一启动入口；单包 launch 默认读取包内 `config/*.yaml`
 | `defect_detector` | 缺陷检测（持续补齐中） |（待补齐 README） |
 | `task_coordinator` | 任务编排/状态机（持续补齐中） |（待补齐 README） |
 | `inspection_interface` | 机器人内部 msg/srv 定义（对齐网关语义） | `src/inspection_interface/msg`、`src/inspection_interface/srv` |
+| `inspection_gateway` | gRPC 网关：HMI <-> ROS2 桥接（持续补齐中） | `src/inspection_gateway/CLAUDE.md`、`docs/INSPECTION_GATEWAY_DESIGN.md` |
 | `inspection_bringup` | launch/配置统一入口 | `src/inspection_bringup/launch`、`src/inspection_bringup/config` |
 | `inspection_supervisor` | 系统监控（可选） |（待补齐 README） |
 

@@ -4,7 +4,7 @@
 
 ## 1. 当前代码现状（快速结论）
 
-- `inspection_gateway`（gRPC 服务端）：**缺失**（当前仓库无 grpc 实现代码）
+- `inspection_gateway`（gRPC 服务端）：**包骨架已建立**（`src/inspection_gateway/`），但 gRPC handlers/存储/桥接逻辑尚未实现
 - 导航地图 `GetNavMap`：
   - ROS2 `inspection_interface/srv/GetNavMap`：**已定义**
   - `agv_driver` `get_nav_map` service server：**缺失**
@@ -42,7 +42,10 @@
 
 网关桥接的详细设计见：`docs/INSPECTION_GATEWAY_DESIGN.md`。
 
-建议新建（后续实现）：
+当前状态：
+- 包骨架已建立：`src/inspection_gateway/`
+
+建议实现时遵循（后续实现）：
 
 - `inspection-robot/src/inspection_gateway/`（独立进程，gRPC server）
 - 逻辑分层：

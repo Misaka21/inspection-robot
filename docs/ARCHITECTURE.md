@@ -67,6 +67,10 @@
 └───────────────────────────────────────────────────────┘
 ```
 
+说明：
+- `inspection_gateway` 在本仓库中以 ROS2 包形式存在（建议部署在 AGX）：`src/inspection_gateway/`
+- HMI 不直接连接 ROS2，所有对外语义以 `inspection-api/proto/inspection_gateway.proto` 为准
+
 ## 4. 功能包索引
 
 ### 4.1 驱动层 (Drivers)
@@ -104,6 +108,7 @@
 | 包名 | 职责 |
 |------|------|
 | `inspection_interface` | 消息/服务定义 |
+| `inspection_gateway` | 对外 gRPC 网关（HMI <-> ROS2 桥接） |
 | `inspection_bringup` | 启动管理 |
 | `inspection_supervisor` | 系统监控 |
 

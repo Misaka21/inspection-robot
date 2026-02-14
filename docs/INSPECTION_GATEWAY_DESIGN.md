@@ -2,6 +2,10 @@
 
 目标：上位机 `inspection-hmi` 不需要 ROS2 环境，只通过 gRPC 调用 `inspection_gateway`；`inspection_gateway` 运行在机器人端（AGX/工控机），在同一进程内访问 ROS2 topic/service，并对外提供 `inspection-api/proto/inspection_gateway.proto` 定义的能力。
 
+代码落点：
+- 本仓库已建立 ROS2 包骨架：`src/inspection_gateway/`
+- 网关实现应放在该包内（避免散落脚本）
+
 ## 1. 部署与通信边界
 
 - 部署位置：机器人端（与 ROS2 同机或同容器）
@@ -135,4 +139,3 @@ HMI 需要实现：
 
 - 对外 proto 变化：更新 `inspection-api`，并同步更新本仓库 `docs/WORKSPACE_OVERVIEW.md` 与 `TODO.md`
 - 对内 ROS2 契约变化（topic/service）：同步更新 `docs/ARCHITECTURE.md`、相关包 `src/*/CLAUDE.md` 与 `TODO.md`
-

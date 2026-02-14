@@ -16,6 +16,7 @@
 - `inspection-robot/`
   - 机器人端 ROS2 工作空间：驱动/控制/规划/检测/编排。
   - 部署 `inspection_gateway`（建议在 AGX 上），对外提供 gRPC 服务，对内调用 ROS2 节点。
+  - 网关代码落点：`src/inspection_gateway/`（ROS2 包，gRPC server + ROS2 bridge + store）
 
 整体链路：
 
