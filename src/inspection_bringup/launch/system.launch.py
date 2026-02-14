@@ -77,6 +77,16 @@ def generate_launch_description():
             'namespace': '/inspection',
         }.items(),
     )
+
+    # HMI <-> ROS2 gateway (gRPC)
+    inspection_gateway_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(get_package_share_directory('inspection_gateway'), 'launch', 'inspection_gateway.launch.py')
+        ),
+        launch_arguments={
+            'namespace': '/inspection',
+        }.items(),
+    )
     
     return LaunchDescription([
         drivers_launch,
@@ -87,6 +97,7 @@ def generate_launch_description():
         path_planner_launch,
         defect_detector_launch,
         task_coordinator_launch,
+        inspection_gateway_launch,
         
         # Foxglove Bridge（用于可视化调试）
         Node(
