@@ -82,3 +82,8 @@ flowchart TB
 - `SystemState` 字段应能映射出 phase/progress/current_action/error_message + agv/arm 状态 + 当前 waypoint
 - 事件流建议新增 `/inspection/events` topic（结构化 capture/defect）
 
+## 6. 文档与 TODO 维护（必须）
+
+- 修改 public ROS API（topic/service/参数）或状态机推进规则时，必须同步更新：本文件、`docs/WORKSPACE_OVERVIEW.md`、`docs/ARCHITECTURE.md`、仓库根 `TODO.md`
+- 任何“阶段性实现/临时逻辑”必须在 `TODO.md` 留痕（注明什么时候移除、替换为哪个模块）
+- 完成 TODO：必须勾选并在提交信息/PR 描述里说明验证方式（真机/仿真/回放）

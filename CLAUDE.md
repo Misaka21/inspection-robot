@@ -123,6 +123,15 @@ sudo apt install ros-humble-realsense2-camera ros-humble-librealsense2
 
 - `src/<package_name>/CLAUDE.md`
 
+## TODO 维护（必须）
+
+- 仓库根 `TODO.md` 是“还要做什么”的单一事实来源；新增/变更任务必须写这里
+- 完成任务必须勾选，并在提交信息里注明验证方式（真机/仿真/回放/单测）
+- 修改 public ROS API 或端到端数据流时，必须同步更新：
+  - 相关包的 `src/<package>/CLAUDE.md` / `README.md`
+  - `docs/WORKSPACE_OVERVIEW.md` / `docs/ARCHITECTURE.md`（按需）
+  - `TODO.md`
+
 ## Git Commit 规范
 
 你是一个专业的 Git 提交信息生成助手。请严格按照以下规范生成 commit 信息。
@@ -220,4 +229,3 @@ Closes: #234, #235
   - 禁止添加 "Co-Authored-By: Claude <noreply@anthropic.com>"
   - 禁止添加任何其他AI工具生成的标记
   - 只包含人为编写的提交内容
-

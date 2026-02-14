@@ -29,3 +29,7 @@
 2. 不要在本包里新增 C++ node（否则职责会混乱）
 3. 若接口命名需要调整，优先通过 launch 参数控制（namespace/name）
 
+## 4. 文档与 TODO 维护（必须）
+
+- 修改输出接口/namespace/camera_name 时，必须同步更新：本文件、bringup launch、`docs/ARCHITECTURE.md`、仓库根 `TODO.md`
+- 新增功能但未实现完：必须把未完成项写入 `TODO.md`（带清晰落点与验收标准）

@@ -33,3 +33,7 @@
 
 并保持“对外 gRPC 语义优先”的命名。
 
+## 4. 文档与 TODO 维护（必须）
+
+- 任何 msg/srv 变更必须同步更新：`docs/WORKSPACE_OVERVIEW.md`、`docs/IMPLEMENTATION_STATUS.md`、仓库根 `TODO.md`
+- 破坏性变更必须在提交信息中标注 `!` 或 `BREAKING CHANGE:`

@@ -105,3 +105,8 @@ flowchart LR
 - 开 `log_io=true`，确认 cmd/port/seq 对齐
 - `task_coordinator` 的到位门控建议只看 `/inspection/agv/status`，不要靠 `/current_pose` 推断到位
 
+## 7. 文档与 TODO 维护（必须）
+
+- 修改 public ROS API（topic/service/参数）时，必须同步更新：本文件、包内 `README.md`、`docs/ARCHITECTURE.md`、仓库根 `TODO.md`
+- 新增功能但未实现完：必须把未完成项写入 `TODO.md`（带清晰落点与验收标准）
+- 完成 TODO：必须勾选并在提交信息/PR 描述里说明验证方式（真机/仿真/回放）

@@ -65,3 +65,8 @@ flowchart LR
 
 建议 ROS2 内部增加一个 `PlanInspection.srv`（返回 waypoints+stats），由 `inspection_gateway` 调用；`PoseArray` 仅保留作调试可视化。
 
+## 6. 文档与 TODO 维护（必须）
+
+- 修改 public ROS API（topic/service/参数）时，必须同步更新：本文件、包内 launch/config、`docs/ARCHITECTURE.md`、仓库根 `TODO.md`
+- 新增功能但未实现完：必须把未完成项写入 `TODO.md`（带清晰落点与验收标准）
+- 完成 TODO：必须勾选并在提交信息/PR 描述里说明验证方式（真机/仿真/回放）

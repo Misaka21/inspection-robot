@@ -47,3 +47,7 @@ flowchart LR
   Sup --> Alerts["/inspection/alerts"]
 ```
 
+## 5. 文档与 TODO 维护（必须）
+
+- 修改监控输入 topic 或告警口径时，必须同步更新：本文件、`docs/ARCHITECTURE.md`、仓库根 `TODO.md`
+- 任何临时监控规则必须在 `TODO.md` 留痕（注明删除条件）

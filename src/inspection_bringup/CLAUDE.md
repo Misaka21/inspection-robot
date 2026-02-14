@@ -38,3 +38,7 @@
   - 包内 `README.md` 或 `CLAUDE.md`
   - `docs/ARCHITECTURE.md` 接口章节
 
+## 5. 文档与 TODO 维护（必须）
+
+- 任何 launch/topology 变化必须同步更新：本文件、`docs/ARCHITECTURE.md`、仓库根 `TODO.md`
+- 新增节点但未接好参数/命名空间：必须在 `TODO.md` 记录并注明验收方式

@@ -66,3 +66,8 @@ flowchart LR
 - `arm_controller` 默认向 `/inspection/arm/joint_cmd` 发指令；保持该接口稳定。
 - `robot_state_publisher` 依赖 `/joint_states`；如果未来引入多机械臂或命名空间，需要统一策略（否则 TF 会乱）。
 
+## 7. 文档与 TODO 维护（必须）
+
+- 修改 public ROS API（topic/service/参数）时，必须同步更新：本文件、包内 `README.md`、`docs/ARCHITECTURE.md`、仓库根 `TODO.md`
+- 新增功能但未实现完：必须把未完成项写入 `TODO.md`（带清晰落点与验收标准）
+- 完成 TODO：必须勾选并在提交信息/PR 描述里说明验证方式（真机/仿真/回放）
