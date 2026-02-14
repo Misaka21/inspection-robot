@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>inspection_gateway</name>
+  <version>0.0.0</version>
+  <description>gRPC gateway bridging inspection-hmi and ROS2</description>
+  <maintainer email="user@example.com">user</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>inspection_interface</exec_depend>
+
+  <!-- Python deps (typically installed via apt/pip in deployment image) -->
+  <exec_depend>python3-grpcio</exec_depend>
+  <exec_depend>python3-grpcio-tools</exec_depend>
+  <exec_depend>python3-protobuf</exec_depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
+
