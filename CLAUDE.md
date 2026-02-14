@@ -110,6 +110,19 @@ src/
 sudo apt install ros-humble-realsense2-camera ros-humble-librealsense2
 ```
 
+## 分包架构约定（避免代码堆在 Node 回调里）
+
+本仓库的 ROS2 包很多，最容易退化成“所有逻辑都写在 node 的构造函数/回调里”。为了长期可维护，约定如下：
+
+1. **Node 只做 IO 与调度**：参数、pub/sub/srv、timer、TF、日志；不做协议细节/算法细节/大量业务分支。
+2. **核心逻辑放到 Core/Service 类**：可单测、尽量无 ROS 依赖（或极少 ROS 依赖）。
+3. **硬件/协议放到 Adapter/Transport**：对外暴露语义 API；禁止在上层散落 cmd 号/端口/JSON 字段。
+4. **跨包接口不要用 `~/`**：公共 topic/service 用相对名 `topic`，通过 launch 的 `namespace` 固定前缀；`~/` 仅用于节点私有调试接口。
+
+每个包的“职责边界/数据流/推荐文件结构”请看对应的：
+
+- `src/<package_name>/CLAUDE.md`
+
 ## Git Commit 规范
 
 你是一个专业的 Git 提交信息生成助手。请严格按照以下规范生成 commit 信息。
@@ -207,5 +220,4 @@ Closes: #234, #235
   - 禁止添加 "Co-Authored-By: Claude <noreply@anthropic.com>"
   - 禁止添加任何其他AI工具生成的标记
   - 只包含人为编写的提交内容
-
 
