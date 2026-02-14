@@ -3,6 +3,7 @@
 本文档从系统全局视角约束“点位语义、导航地图、坐标系与标定、取图结果回显”等关键接口与实现边界，避免各模块 README 各写各的导致漂移。
 
 实现落地与缺口清单见：`docs/IMPLEMENTATION_STATUS.md`。
+网关桥接设计见：`docs/INSPECTION_GATEWAY_DESIGN.md`。
 
 ## 1. 仓库分工（必须一致）
 

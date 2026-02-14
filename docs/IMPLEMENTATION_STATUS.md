@@ -40,6 +40,8 @@
 
 ### 3.1 inspection_gateway（建议：Python 实现，跑通快）
 
+网关桥接的详细设计见：`docs/INSPECTION_GATEWAY_DESIGN.md`。
+
 建议新建（后续实现）：
 
 - `inspection-robot/src/inspection_gateway/`（独立进程，gRPC server）
@@ -128,4 +130,3 @@ flowchart LR
 2. `GetNavMap` 跑通：`agv_driver` 增加 `get_nav_map` server（先返回元信息/缩略图即可，底图可后补）
 3. `PlanInspection` 先做“可视化可用”的 waypoints（允许用固定模板/少量候选），优先让 HMI 有路径折线与点位高亮
 4. 引入媒体落盘与事件：抓拍产生 `media_id`，事件带 `thumbnail_jpeg`，HMI 能回看
-
