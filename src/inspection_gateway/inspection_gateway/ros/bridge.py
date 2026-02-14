@@ -56,6 +56,7 @@ class RosBridge(Node):
         super().__init__("inspection_gateway_ros")
         self._names = names
         self._state_hub = state_hub
+        self._call_lock = threading.Lock()
 
         self._state_sub = self.create_subscription(
             SystemState,
@@ -75,29 +76,32 @@ class RosBridge(Node):
         self._state_hub.publish(msg)
 
     def _call(self, client, req, service_name: str, timeout_s: float):
-        if not client.wait_for_service(timeout_sec=timeout_s):
-            raise TimeoutError(f"service not available: {service_name}")
+        # gRPC handlers run in a thread pool; serialize ROS service calls to avoid
+        # any rclpy client thread-safety surprises.
+        with self._call_lock:
+            if not client.wait_for_service(timeout_sec=timeout_s):
+                raise TimeoutError(f"service not available: {service_name}")
 
-        event = threading.Event()
-        out = {"resp": None, "exc": None}
+            event = threading.Event()
+            out = {"resp": None, "exc": None}
 
-        future = client.call_async(req)
+            future = client.call_async(req)
 
-        def _done(_fut):
-            try:
-                out["resp"] = _fut.result()
-            except Exception as ex:  # pragma: no cover
-                out["exc"] = ex
-            finally:
-                event.set()
+            def _done(_fut):
+                try:
+                    out["resp"] = _fut.result()
+                except Exception as ex:  # pragma: no cover
+                    out["exc"] = ex
+                finally:
+                    event.set()
 
-        future.add_done_callback(_done)
+            future.add_done_callback(_done)
 
-        if not event.wait(timeout_s):
-            raise TimeoutError("service call timeout")
-        if out["exc"] is not None:
-            raise out["exc"]
-        return out["resp"]
+            if not event.wait(timeout_s):
+                raise TimeoutError("service call timeout")
+            if out["exc"] is not None:
+                raise out["exc"]
+            return out["resp"]
 
     def start_inspection(self, plan_id: str, dry_run: bool, timeout_s: float):
         req = StartInspection.Request()
