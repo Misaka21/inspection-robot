@@ -28,6 +28,8 @@ namespace
 
 double clamp01(const double v)
 {
+  // 先过滤 NaN/Inf，防止 std::clamp 在无效输入下行为未定义（某些 STL 实现会 UB 或 assert）
+  // NaN 比较永远为 false，不过滤会直接传给 MoveIt 导致规划崩溃
   if (std::isnan(v) || std::isinf(v)) {
     return 0.0;
   }
@@ -78,6 +80,9 @@ public:
       "cart_goal",
       10,
       [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
+        // Fire-and-forget：规划 + 执行 全程在 ROS 回调线程里阻塞完成
+        // 优点：实现简单；缺点：此回调线程在执行期间无法处理其他消息（包括新的 cart_goal）
+        // 后续如需并发/取消能力，需改为独立 worker 线程 + 取消令牌
         // Fire-and-forget behavior: plan + execute in callback thread.
         (void)execute_pose_goal(*msg, velocity_scaling_);
       });
@@ -86,6 +91,8 @@ public:
       "joint_goal",
       10,
       [this](const sensor_msgs::msg::JointState::SharedPtr msg) {
+        // joint_goal 是直接透传：跳过 MoveIt 规划，直接把关节角目标发给 arm_driver
+        // 适用于调试或外部已经规划好轨迹点的场景，控制层只做转发，不做碰撞检查
         // Direct joint command passthrough (controller layer responsibility ends here).
         std::lock_guard<std::mutex> lock(mutex_);
         sensor_msgs::msg::JointState cmd = *msg;
@@ -205,6 +212,10 @@ private:
     }
 
     publish_status("executing");
+    // stream_trajectory_ = true：逐点流式下发，每个轨迹点按时间间隔依次发送
+    //   优点：机械臂能平滑跟踪整条轨迹，过程中可监控进度；缺点：耗时等于轨迹总时长
+    // stream_trajectory_ = false：只发最后一个点，让驱动自行插值到终点
+    //   优点：响应快；缺点：中间过程无法干预，路径不受 MoveIt 规划约束
     const bool ok = stream_trajectory_ ? execute_trajectory(traj) : execute_final_point(traj);
     publish_status(ok ? "done" : "execute_failed");
     publish_progress(ok ? 1.0 : 0.0);
@@ -247,8 +258,13 @@ private:
       cmd.position = pt.positions;
       joint_cmd_pub_->publish(cmd);
 
+      // points_n > 1 时：progress = i / (points_n - 1)，使进度在 [0, 1] 均匀分布
+      // points_n == 1 时直接发布 1.0，避免除零
       publish_progress(points_n > 1 ? static_cast<double>(i) / static_cast<double>(points_n - 1) : 1.0);
 
+      // now_ns = 当前点相对于轨迹起点的绝对时间戳（纳秒）
+      // sleep_ns = now_ns - prev_ns = 相邻两轨迹点之间的时间间隔
+      // 用 max(0, ...) 防止时间戳乱序时 sleep 负值
       const int64_t now_ns = duration_to_ns(pt.time_from_start);
       const int64_t sleep_ns = std::max<int64_t>(0, now_ns - prev_ns);
       prev_ns = now_ns;

@@ -47,6 +47,8 @@ void ArmDriverNode::setup_ros_interfaces()
 
 void ArmDriverNode::on_joint_command(const sensor_msgs::msg::JointState::SharedPtr msg)
 {
+  // data_mutex_ 同时保护 on_joint_command（ROS 回调线程）和 on_state_timer（定时器线程）
+  // 两者都访问 modules_ 中的 command_position 与 position，必须互斥
   std::lock_guard<std::mutex> lock(data_mutex_);
 
   if (!connected_) {
@@ -142,6 +144,8 @@ void ArmDriverNode::on_status_timer()
   bool moving_by_delta = false;
   if (last_reported_positions_.size() == status.current_joints.size()) {
     for (size_t i = 0; i < status.current_joints.size(); ++i) {
+      // 相邻两次状态帧之间的关节角变化量超过阈值，说明机械臂仍在运动
+      // 补充底层驱动 getMotionState 可能延迟的情况（驱动未报告运动但实际还在走）
       if (std::fabs(status.current_joints[i] - last_reported_positions_[i]) > motion_threshold_) {
         moving_by_delta = true;
         break;
@@ -161,7 +165,12 @@ void ArmDriverNode::on_status_timer()
     fault = core_driver_->getFaultState();
   }
 
+  // moving_by_core：驱动层自报的运动标志（来自厂商 API getMotionState）
+  // moving_by_delta：从连续帧位置差推算的运动标志
+  // 两者取 OR 是为了应对驱动标志延迟置位/提前复位的边界情况
   status.moving = moving_by_delta || moving_by_core;
+  // pos_aligned = 驱动报告目标位置已对齐（getPosAlignState）
+  // arrived 语义：位置已对齐 且 没有任何运动迹象
   status.arrived = (!status.moving) && pos_aligned;
 
   if (!connected_ && !last_error_.empty()) {
@@ -192,6 +201,9 @@ void ArmDriverNode::on_enable(
       response->message = "enable succeeded but state read failed: " + last_error_;
       return;
     }
+    // enable 后必须先读硬件当前位置，再把 command_position 同步到当前位置
+    // 再立即 write，目的是让驱动以"当前实际位置"作为第一条指令
+    // 如果跳过这步，驱动会以上次的 command_position（可能已过期）为起点，导致电机突跳
     synchronize_commands_to_current_locked();
     write_joint_commands_locked();
   }
@@ -232,6 +244,11 @@ void ArmDriverNode::on_stop(
 {
   std::lock_guard<std::mutex> lock(data_mutex_);
 
+  // stop 的实现是"读→同步→写"三步：
+  // 1. read：获取当前实际位置
+  // 2. synchronize：把 command_position 覆盖为当前实际位置
+  // 3. write：下发"原地不动"指令
+  // 这样驱动收到的目标位置等于现在所在位置，电机会立刻锁住，不会跳到之前缓存的指令位置
   if (!read_hardware_state_locked()) {
     response->success = false;
     response->message = "read hardware state failed: " + last_error_;

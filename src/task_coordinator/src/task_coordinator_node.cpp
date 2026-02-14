@@ -36,6 +36,8 @@ TaskCoordinatorNode::TaskCoordinatorNode(const rclcpp::NodeOptions& options)
     _arm_joint_pub = this->create_publisher<sensor_msgs::msg::JointState>(
         "arm_control/joint_goal", 10);
 
+    // AGV 状态订阅：解析 arrived/stopped/connected/error_code 判断"到位"条件
+    // 联锁：connected && arrived && stopped && error_code=="OK" 四条件全满足才算到位
     _agv_status_sub = this->create_subscription<inspection_interface::msg::AgvStatus>(
         "agv/status", 10,
         [this](const inspection_interface::msg::AgvStatus::SharedPtr msg) {
@@ -103,10 +105,12 @@ TaskCoordinatorNode::TaskCoordinatorNode(const rclcpp::NodeOptions& options)
             get_status(req, res);
         });
 
+    // 状态机定时器（100ms）：每 100ms 驱动一次状态机推进
     _state_machine_timer = this->create_wall_timer(
         std::chrono::milliseconds(100),
         [this]() { run_state_machine(); });
 
+    // 状态发布定时器（1s）：定期向 ROS 发布 SystemState 供网关/HMI 订阅
     _state_publish_timer = this->create_wall_timer(
         std::chrono::seconds(1),
         [this]() { publish_state(); });
@@ -135,6 +139,9 @@ void TaskCoordinatorNode::run_state_machine() {
     }
 }
 
+// LOCALIZING 阶段：调用 perception/detect 服务触发工件位姿检测。
+// _localizing_triggered 防止重复发送服务请求（异步回调尚未返回时）。
+// 检测成功后自动进入 PLANNING 阶段。
 void TaskCoordinatorNode::handle_localizing() {
     if (!_localizing_triggered) {
         RCLCPP_INFO(this->get_logger(), "触发工件位姿检测...");
@@ -162,6 +169,9 @@ void TaskCoordinatorNode::handle_localizing() {
     }
 }
 
+// PLANNING 阶段：调用 planning/optimize 服务触发路径规划。
+// 规划结果通过 /inspection/planning/path 话题回调更新 _waypoints。
+// 必须 _path_planned=true 且 _total_waypoints>0 才推进到 EXECUTING。
 void TaskCoordinatorNode::handle_planning() {
     if (!_planning_triggered) {
         RCLCPP_INFO(this->get_logger(), "触发路径规划...");
@@ -376,6 +386,8 @@ void TaskCoordinatorNode::set_phase(uint8_t phase) {
     _current_phase = phase;
 }
 
+// 进度计算：百分比表示任务完成度。
+// LOCALIZING=10%, PLANNING=20%, EXECUTING 按 waypoint 进度线性插值到 80%。
 float TaskCoordinatorNode::calculate_progress() {
     if (_current_phase == SystemState::PHASE_IDLE ||
         _current_phase == SystemState::PHASE_STOPPED ||

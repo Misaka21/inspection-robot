@@ -68,7 +68,9 @@ ElfinEtherCATClient::ElfinEtherCATClient(EtherCatManager *manager, int slave_no,
     server_open_brake_=n_->create_service<std_srvs::srv::SetBool>(open_brake_server_name, std::bind(&ElfinEtherCATClient::open_brake_cb, this,std::placeholders::_1,std::placeholders::_2));
     server_close_brake_=n_->create_service<std_srvs::srv::SetBool>(close_brake_server_name, std::bind(&ElfinEtherCATClient::close_brake_cb, this,std::placeholders::_1,std::placeholders::_2));
 
-    // init pdo_input and output
+    // PDO 通道偏移量以字节为单位，每个 PDO unit 占 4 字节
+    // Axis1：通道 0,4,8,12 对应 statusword/position/velocity/errorcode
+    // Axis2：通道 32,36,40,44（偏移 32 字节，两轴在同一从站的不同 PDO 区间）
     std::string name_pdo_input[8]={"Axis1_Statusword and Axis1_Torque_Actual_Value", "Axis1_Position_Actual_Value",
                                    "Axis1_Velocity_Actual_Value", "Axis1_ErrorCode and Axis1_Modes_of_operation_display",
                                    "Axis2_Statusword and Axis2_Torque_Actual_Value", "Axis2_Position_Actual_Value",
@@ -94,18 +96,25 @@ ElfinEtherCATClient::ElfinEtherCATClient(EtherCatManager *manager, int slave_no,
         pdo_output.push_back(unit_tmp);
     }
 
+    // 0x1c12：RxPDO 映射对象（主站→从站方向），子索引 0x00 先写 0 清空映射计数
+    // 子索引 0x01/0x02 分别指向 0x1600/0x1610（Axis1/Axis2 的 RxPDO 映射表）
+    // 最后子索引 0x00 写 2 表示激活 2 条 PDO 映射
     manager_->writeSDO<int8_t>(slave_no, 0x1c12, 0x00, 0x00);
     manager_->writeSDO<int16_t>(slave_no, 0x1c12, 0x01, 0x1600);
     manager_->writeSDO<int16_t>(slave_no, 0x1c12, 0x02, 0x1610);
     manager_->writeSDO<int8_t>(slave_no, 0x1c12, 0x00, 0x02);
 
+    // 0x1c13：TxPDO 映射对象（从站→主站方向），同理映射 0x1a00/0x1a10
     manager_->writeSDO<int8_t>(slave_no, 0x1c13, 0x00, 0x00);
     manager_->writeSDO<int16_t>(slave_no, 0x1c13, 0x01, 0x1a00);
     manager_->writeSDO<int16_t>(slave_no, 0x1c13, 0x02, 0x1a10);
     manager_->writeSDO<int8_t>(slave_no, 0x1c13, 0x00, 0x02);
 
+    // controlword = 0x0：CiA402 "Not Ready To Switch On" 初始状态，确保驱动上电安全
     writeOutput_half_unit(elfin_rxpdo::AXIS1_CONTROLWORD_L16, 0x0, false);
     writeOutput_half_unit(elfin_rxpdo::AXIS2_CONTROLWORD_L16, 0x0, false);
+    // Modes of Operation = 0x8：CSP（Cyclic Synchronous Position）模式
+    // CSP 模式下主站每个周期更新目标位置，驱动器负责插补，适合 EtherCAT 实时控制
     writeOutput_unit_byte(elfin_rxpdo::AXIS1_MODES_OF_OPERATION_BYTE2, 0x8, true, false);
     writeOutput_unit_byte(elfin_rxpdo::AXIS2_MODES_OF_OPERATION_BYTE2, 0x8, true, false);
 }
@@ -122,8 +131,10 @@ int32_t ElfinEtherCATClient::readInput_unit(int n)
     uint8_t map[4];
     for(int i=0; i<4; i++)
     {
+        // 从 PDO 输入缓冲区按字节读取，channel 是该 PDO unit 的起始字节偏移
         map[i]=manager_->readInput(slave_no_, pdo_input[n].channel+i);
     }
+    // 将 4 字节小端数组直接 reinterpret 为 int32，避免手动移位合并（EtherCAT 数据是小端序）
     int32_t value_tmp=*(int32_t *)(map);
     return value_tmp;
 }
@@ -148,6 +159,8 @@ void ElfinEtherCATClient::writeOutput_unit(int n, int32_t val)
     uint8_t map_tmp;
     for(int i=0; i<4; i++)
     {
+        // 小端序逐字节写入：第 i 字节 = val 右移 8*i 位后取低 8 位
+        // i=0 写最低字节，i=3 写最高字节，符合 EtherCAT 小端字节序要求
         map_tmp=(val>>8*i) & 0x00ff;
         manager_->write(slave_no_, pdo_output[n].channel+i, map_tmp);
     }
@@ -159,9 +172,9 @@ int16_t ElfinEtherCATClient::readInput_half_unit(int n, bool high_16)
         return 0x0000;
     int offset;
     if(high_16)
-        offset=2;
+        offset=2; // 读高 16 位：跳过低 2 字节，从字节偏移 2 开始读
     else
-        offset=0;
+        offset=0; // 读低 16 位：从字节偏移 0 开始读
     uint8_t map[2];
     for(int i=0; i<2; i++)
     {
@@ -470,17 +483,23 @@ void ElfinEtherCATClient::clearPoseFault()
 bool ElfinEtherCATClient::recognizePose()
 {
     //channel1
+    // statusword 低 2 位（bit3:2）= 0 表示驱动处于未使能且无故障状态，才允许进行位置识别
+    // bit3=1 表示 warning，bit2=1 表示 voltage enabled；两者都为 0 才是安全初始状态
     if((readInput_half_unit(elfin_txpdo::AXIS1_STATUSWORD_L16, false) & 0xc) == 0)
     {
         manager_->writeSDO<int8_t>(slave_no_, 0x6060, 0x0, 0xc);
         writeOutput_unit_byte(elfin_rxpdo::AXIS1_MODES_OF_OPERATION_BYTE2, 0xc, true, false);
         usleep(20000);
+        // 0x3024：Axis1 制动器控制寄存器（厂商私有对象）
+        // 0x11000000：打开制动器命令（高字节 0x11 = 开闸指令，低字节为参数）
         manager_->writeSDO<int32_t>(slave_no_, 0x3024, 0x0, 0x11000000);
         struct timespec before, tick;
         clock_gettime(CLOCK_REALTIME, &before);
         clock_gettime(CLOCK_REALTIME, &tick);
         while(rclcpp::ok())
         {
+            // 0x2023/0x2024：厂商私有对象，反映当前制动器/位置确认状态
+            // 0x200000：制动器已完全打开（位置识别成功）的确认标志
             if(manager_->readSDO<int32_t>(slave_no_, 0x2023, 0x0)==0x200000
                && manager_->readSDO<int32_t>(slave_no_, 0x2024, 0x0)==0x200000)
             {
@@ -599,6 +618,9 @@ bool ElfinEtherCATClient::recognizePose()
 
 bool ElfinEtherCATClient::isEnabled()
 {
+    // CiA402 statusword 低 4 位（nibble）= 0x7 表示 "Operation Enabled" 状态
+    // 0x7 = 0b0111：Switched On + Quick Stop resolved + Voltage Enabled + Ready To Switch On
+    // 两轴必须同时满足才认为整个模块使能成功
     if((readInput_half_unit(elfin_txpdo::AXIS1_STATUSWORD_L16, false) & 0xf)==0x7
             && (readInput_half_unit(elfin_txpdo::AXIS2_STATUSWORD_L16, false) & 0xf)==0x7)
         return true;
@@ -641,6 +663,8 @@ void *ElfinEtherCATClient::setEnable(void* threadarg)
     pthis->writeOutput_unit(elfin_rxpdo::AXIS2_TARGET_POSITION, pthis->readInput_unit(elfin_txpdo::AXIS2_ACTPOSITION));
     usleep(100000);
 
+    // CiA402 使能状态机四步序列（setEnable）：
+    // 步骤1：controlword = 0x6 -> 等待 statusword = 0x21（"Ready to Switch On"）
     pthis->writeOutput_half_unit(elfin_rxpdo::AXIS1_CONTROLWORD_L16, 0x6, false);
     pthis->writeOutput_half_unit(elfin_rxpdo::AXIS2_CONTROLWORD_L16, 0x6, false);
 
@@ -667,6 +691,7 @@ void *ElfinEtherCATClient::setEnable(void* threadarg)
         clock_gettime(CLOCK_REALTIME, &tick);
     }
 
+    // 步骤2：controlword = 0x7 -> 等待 statusword = 0x23（"Switched On"）
     pthis->writeOutput_half_unit(elfin_rxpdo::AXIS1_CONTROLWORD_L16, 0x7, false);
     pthis->writeOutput_half_unit(elfin_rxpdo::AXIS2_CONTROLWORD_L16, 0x7, false);
 
@@ -688,6 +713,7 @@ void *ElfinEtherCATClient::setEnable(void* threadarg)
         clock_gettime(CLOCK_REALTIME, &tick);
     }
 
+    // 步骤3：controlword = 0xf -> 等待 statusword = 0x27（"Operation Enabled"）
     pthis->writeOutput_half_unit(elfin_rxpdo::AXIS1_CONTROLWORD_L16, 0xf, false);
     pthis->writeOutput_half_unit(elfin_rxpdo::AXIS2_CONTROLWORD_L16, 0xf, false);
 
@@ -709,6 +735,7 @@ void *ElfinEtherCATClient::setEnable(void* threadarg)
         clock_gettime(CLOCK_REALTIME, &tick);
     }
 
+    // 步骤4：controlword = 0x1f，触发"新设定点"位（bit4），完成 CSP 模式下的最终使能
     pthis->writeOutput_half_unit(elfin_rxpdo::AXIS1_CONTROLWORD_L16, 0x1f, false);
     pthis->writeOutput_half_unit(elfin_rxpdo::AXIS2_CONTROLWORD_L16, 0x1f, false);
 
@@ -748,6 +775,8 @@ void *ElfinEtherCATClient::recognizePoseCmd(void *threadarg)
 
 bool ElfinEtherCATClient::isWarning()
 {
+    // CiA402 statusword bit3 = Warning 位
+    // 任意一轴报 warning 即认为模块有告警（两轴使用 OR 逻辑，保守策略）
     if((readInput_half_unit(elfin_txpdo::AXIS1_STATUSWORD_L16, false) & 0x08)==0x08
        || (readInput_half_unit(elfin_txpdo::AXIS2_STATUSWORD_L16, false) & 0x08)==0x08)
         return true;

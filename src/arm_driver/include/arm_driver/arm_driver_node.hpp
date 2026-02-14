@@ -31,14 +31,20 @@ private:
     double reduction_ratio{0.0};
     double axis_position_factor{0.0};
     double axis_torque_factor{0.0};
+    // count_rad_factor：编码器计数 -> 弧度的换算系数（包含减速比、编码器分辨率）
+    // 换算公式：position_rad = (pos_count - count_zero) * count_rad_factor
     double count_rad_factor{0.0};
+    // count_rad_per_s_factor：编码器速度计数 -> rad/s 的换算系数
     double count_rad_per_s_factor{0.0};
+    // count_nm_factor：力矩计数 -> N·m 的换算系数
     double count_nm_factor{0.0};
+    // count_zero：使能时刻记录的编码器零点计数值，用于把绝对计数转为相对零位角度
     double count_zero{0.0};
 
-    double position{0.0};
-    double velocity{0.0};
-    double effort{0.0};
+    double position{0.0};    // 当前关节角度（rad）
+    double velocity{0.0};    // 当前关节速度（rad/s）
+    double effort{0.0};      // 当前关节力矩（N·m）
+    // command_position：上层最近下发的目标关节角度（rad），写入 PDO 前换算成计数值
     double command_position{0.0};
   };
 
@@ -53,7 +59,11 @@ private:
     const std::shared_ptr<std_srvs::srv::SetBool::Request>,
     const std::shared_ptr<std_srvs::srv::SetBool::Response>);
 
+  // kVelocityScale = 750.3：厂商速度计数到 rad/s 的比例系数（大族 Elfin 硬件参数，非任意值）
+  // 实际速度(rad/s) = vel_count * count_rad_per_s_factor，该系数由厂商规格书推导
   static constexpr double kVelocityScale = 750.3;
+  // kAxesPerModule = 2：每个 EtherCAT 从站模块包含 2 个关节轴（Elfin E05 每模块双轴）
+  // 用于从 module 索引和 axis1/axis2 定位到 internal_index
   static constexpr size_t kAxesPerModule = 2;
 
   static std::vector<std::string> default_command_joint_names();
@@ -122,6 +132,10 @@ private:
 
   bool connected_{false};
   std::string last_error_;
+  // data_mutex_ 保护所有跨线程共享状态：modules_（含 AxisState）、connected_、last_error_
+  // 访问者包括：on_state_timer（定时器线程）、on_joint_command（ROS 订阅回调线程）
+  //             on_enable/on_stop 等 ROS 服务回调线程
+  // 凡是在这些函数里访问上述状态，都必须持有此锁
   std::mutex data_mutex_;
 
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_cmd_sub_;

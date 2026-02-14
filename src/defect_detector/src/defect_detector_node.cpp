@@ -24,7 +24,9 @@ public:
             "result", 10);
 
         // 声明参数
+        // confidence_threshold：检测结果置信度下限，低于此值的 bbox 被过滤（NMS 前）
         this->declare_parameter("confidence_threshold", 0.7);
+        // nms_threshold：非极大值抑制的 IoU 阈值，控制重叠框的合并力度
         this->declare_parameter("nms_threshold", 0.5);
 
         // 创建服务
@@ -46,11 +48,13 @@ private:
         // 2. 运行缺陷检测模型
         // 3. NMS 后处理
         // 4. 发布结果
+        // 注意：当前实现是骨架，直接在回调里跑推理会阻塞图像队列
+        // 正式实现时应缓存图像，在 service 触发时才做推理（见 CLAUDE.md 架构约定）
 
         inspection_interface::msg::DefectInfo result;
         result.defect_id = 0;
         result.defect_type = "none";
-        result.confidence = 0.0;
+        result.confidence = 0.0;  // confidence=0.0 表示未检测（骨架占位值）
         _result_pub->publish(result);
     }
 

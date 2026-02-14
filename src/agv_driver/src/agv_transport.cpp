@@ -21,9 +21,12 @@ namespace agv_driver
 namespace
 {
 
+// 协议同步字节，每帧的第一个字节必须是 0x5A，否则视为非法帧
 constexpr uint8_t PROTOCOL_SYNC = 0x5A;
+// 固定 16 字节协议头大小
 constexpr size_t PROTOCOL_HEADER_SIZE = 16U;
 
+// 日志截断辅助：防止超长 JSON 刷爆日志，只保留前 max_chars 个字符
 std::string trim_for_log(const std::string & input, const size_t max_chars)
 {
   if (max_chars == 0U || input.size() <= max_chars) {
@@ -32,6 +35,8 @@ std::string trim_for_log(const std::string & input, const size_t max_chars)
   return input.substr(0, max_chars) + "...(truncated, total=" + std::to_string(input.size()) + ")";
 }
 
+// 用正则从 JSON 字符串里提取整型字段（避免引入重量级 JSON 库）
+// 示例：json_get_int(`{"ret_code":0}`, "ret_code") -> 0
 std::optional<int> json_get_int(const std::string & json, const std::string & key)
 {
   const std::regex re("\\\"" + key + "\\\"\\s*:\\s*(-?[0-9]+)");
@@ -66,6 +71,9 @@ void AgvTransport::set_log_io(const bool enabled, const size_t max_chars)
   _log_io_max_chars = max_chars;
 }
 
+// 核心入口：发送一条 AGV 请求并等待响应。
+// 流程：cmd_type -> 查端口 -> 获取/建立 TCP 连接 -> 编包发送 -> 接收16字节头 -> 接收载荷 -> 检查 ret_code
+// 线程安全：内部用 _socket_mutex 保护 socket 状态
 bool AgvTransport::request(
   const uint16_t cmd_type,
   const std::string & json_payload,
@@ -73,6 +81,7 @@ bool AgvTransport::request(
   std::string * error)
 {
   const auto start_time = std::chrono::steady_clock::now();
+  // 根据 cmd_type 查出对应的 TCP 端口（不同功能区分不同端口）
   const auto port = resolve_port(cmd_type);
   if (!port.has_value()) {
     if (error != nullptr) {
@@ -85,10 +94,12 @@ bool AgvTransport::request(
   std::lock_guard<std::mutex> lock(_socket_mutex);
 
   int socket_fd = -1;
+  // 如果对应端口已有 TCP 连接则复用，否则新建
   if (!get_or_connect_socket_locked(port.value(), &socket_fd, error)) {
     return false;
   }
 
+  // 自增序列号，用于调试追踪请求/响应对
   const uint16_t seq = _seq++;
   const auto packet = encode_request_packet(_protocol_version, seq, cmd_type, json_payload);
 
@@ -103,10 +114,12 @@ bool AgvTransport::request(
   }
 
   if (!send_all(socket_fd, packet.data(), packet.size(), error)) {
+    // 发送失败时关闭 socket，下次请求会重新建连
     close_socket_locked(port.value());
     return false;
   }
 
+  // 先接收固定16字节协议头，获取载荷长度
   uint8_t raw_header[PROTOCOL_HEADER_SIZE] = {0};
   if (!recv_all(socket_fd, raw_header, sizeof(raw_header), error)) {
     close_socket_locked(port.value());
@@ -122,6 +135,7 @@ bool AgvTransport::request(
     return false;
   }
 
+  // 再按头里的 length 字段接收 JSON 载荷
   std::string body;
   body.resize(header.length);
   if (header.length > 0U) {
@@ -174,6 +188,13 @@ void AgvTransport::close_all()
   _socket_by_port.clear();
 }
 
+  // cmd_type -> TCP 端口路由表（厂商协议约定，不同功能区使用不同端口）:
+  //   9300 / 19301  -> 19301 (特殊心跳/控制锁命令)
+  //   1000-1999     -> 19204 (查询类命令: 位置/速度/导航状态/电量/告警等)
+  //   2000-2999     -> 19205 (控制类命令: 重定位/开环运动/载图等)
+  //   3000-3999     -> 19206 (任务导航命令: 发送目标位姿)
+  //   4000-4999     -> 19207 (控制锁命令: lock/unlock)
+  //   6000-6999     -> 19210 (地图相关命令)
 std::optional<uint16_t> AgvTransport::resolve_port(const uint16_t cmd_type)
 {
   if (cmd_type == 9300U || cmd_type == 19301U) {
@@ -197,6 +218,8 @@ std::optional<uint16_t> AgvTransport::resolve_port(const uint16_t cmd_type)
   return std::nullopt;
 }
 
+// 将请求打包成协议帧。所有多字节字段转换为大端序（网络字节序）。
+// 返回：头(16字节) + JSON载荷 的连续字节数组
 std::vector<uint8_t> AgvTransport::encode_request_packet(
   const uint8_t version,
   const uint16_t seq,
@@ -221,6 +244,8 @@ std::vector<uint8_t> AgvTransport::encode_request_packet(
   return packet;
 }
 
+// 解析收到的16字节协议头，填充 ProtocolHeader 结构体。
+// 若同步字节不为 0x5A，则视为帧错位/连接异常，返回 false。
 bool AgvTransport::decode_protocol_header(const uint8_t * raw, const size_t size, ProtocolHeader * header)
 {
   if (raw == nullptr || header == nullptr || size < PROTOCOL_HEADER_SIZE) {
@@ -250,6 +275,8 @@ bool AgvTransport::decode_protocol_header(const uint8_t * raw, const size_t size
   return true;
 }
 
+// 按端口号查找已有 socket；若不存在则新建 TCP 连接。
+// 实现"TCP 长连接复用"：每个端口只维护一条持久连接，避免频繁握手开销。
 bool AgvTransport::get_or_connect_socket_locked(
   const uint16_t port,
   int * socket_fd,
@@ -271,6 +298,8 @@ bool AgvTransport::get_or_connect_socket_locked(
   return true;
 }
 
+// 创建 TCP socket 并连接到 AGV 指定端口。
+// 设置发送/接收超时（SO_RCVTIMEO / SO_SNDTIMEO），防止阻塞无限等待。
 bool AgvTransport::connect_socket(const uint16_t port, int * socket_fd, std::string * error) const
 {
   int fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -313,6 +342,7 @@ bool AgvTransport::connect_socket(const uint16_t port, int * socket_fd, std::str
   return true;
 }
 
+// 确保将 size 字节全部发送完毕（TCP 可能分多次发送）
 bool AgvTransport::send_all(
   const int socket_fd,
   const uint8_t * data,
@@ -333,6 +363,7 @@ bool AgvTransport::send_all(
   return true;
 }
 
+// 确保将 size 字节全部接收完毕（TCP 可能分多次接收）
 bool AgvTransport::recv_all(
   const int socket_fd,
   uint8_t * data,

@@ -20,11 +20,14 @@ namespace agv_driver
 namespace
 {
 
+// AGV 导航任务状态：task_status=4 表示已到达目标点（vendor 协议约定值）
 constexpr int TASK_STATUS_ARRIVED = 4;
+// 地图加载状态：0=失败, 1=成功, 2=加载中
 constexpr int LOADMAP_STATUS_FAILED = 0;
 constexpr int LOADMAP_STATUS_SUCCESS = 1;
 constexpr int LOADMAP_STATUS_LOADING = 2;
 
+// 重定位状态：0=初始化, 1=成功, 2=定位中, 3=完成(旧版本兼容)
 constexpr int RELOC_STATUS_INIT = 0;
 constexpr int RELOC_STATUS_SUCCESS = 1;
 constexpr int RELOC_STATUS_RELOCING = 2;
@@ -35,6 +38,7 @@ bool nearly_zero(const double value, const double epsilon = 1e-4)
   return std::abs(value) <= epsilon;
 }
 
+// 将偏航角（弧度）转为四元数（只绕 Z 轴旋转，2D 平面移动）
 geometry_msgs::msg::Quaternion quaternion_from_yaw(const double yaw)
 {
   geometry_msgs::msg::Quaternion q;
@@ -46,6 +50,7 @@ geometry_msgs::msg::Quaternion quaternion_from_yaw(const double yaw)
   return q;
 }
 
+// 从四元数提取偏航角（atan2 公式，仅适用于平面旋转）
 double yaw_from_quaternion(const geometry_msgs::msg::Quaternion & q)
 {
   const double siny_cosp = 2.0 * (q.w * q.z + q.x * q.y);
@@ -138,6 +143,7 @@ public:
 private:
   void on_goal_pose(const geometry_msgs::msg::PoseStamped::SharedPtr & msg)
   {
+    // Bootstrap 未完成时丢弃目标（AGV 尚未定位成功，贸然导航会出错）
     if (_enable_bootstrap && !_bootstrap_ready) {
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 2000,
@@ -179,6 +185,7 @@ private:
 
   void on_cmd_vel(const geometry_msgs::msg::Twist::SharedPtr & msg)
   {
+    // 判断是否是零速指令（线速度和角速度都接近零）
     const bool zero_cmd =
       nearly_zero(msg->linear.x) &&
       nearly_zero(msg->linear.y) &&
@@ -187,6 +194,7 @@ private:
     std::string error;
     bool ok = false;
 
+    // 零速 + stop_on_zero_cmd_vel=true：发送停止指令（更安全，避免 AGV 继续惯性运动）
     if (zero_cmd && _stop_on_zero_cmd_vel) {
       ok = _agv_client->stop_open_loop_motion(&error);
     } else {
@@ -207,6 +215,8 @@ private:
     }
   }
 
+  // 定时轮询（默认 200ms）：读取 AGV 最新状态并发布到 ROS。
+  // 若 bootstrap 未完成则先推进 bootstrap；轮询失败不清空上一帧状态（避免短暂断连导致数据抖动）。
   void on_poll_timer()
   {
     if (_enable_bootstrap && !_bootstrap_ready) {
@@ -234,6 +244,7 @@ private:
     publish_outputs(_last_state);
   }
 
+  // Bootstrap 推进入口：带重试间隔（_bootstrap_retry_interval_ms）防止连续重试打爆 TCP
   void try_bootstrap()
   {
     if (!_enable_bootstrap || _bootstrap_ready) {
@@ -266,6 +277,8 @@ private:
     RCLCPP_WARN(get_logger(), "bootstrap failed: %s", error.c_str());
   }
 
+  // 执行一次完整 Bootstrap 流程：控制锁 -> 地图加载 -> 重定位。
+  // 返回 false 表示任一步骤失败，下次 try_bootstrap 会重试。
   bool bootstrap_once(std::string * error)
   {
     if (_agv_client == nullptr) {
@@ -338,6 +351,7 @@ private:
     return true;
   }
 
+  // 轮询等待地图加载完成，有超时保护（_bootstrap_timeout_ms）
   bool wait_loadmap_ready(std::string * error)
   {
     const auto deadline = now() + rclcpp::Duration::from_seconds(_bootstrap_timeout_ms / 1000.0);
@@ -379,6 +393,8 @@ private:
     return false;
   }
 
+  // 轮询等待重定位完成，支持旧版本的 COMPLETED_LEGACY 状态处理。
+  // _require_confirm_loc=true 时，需要额外调用 confirm_loc 确认定位结果。
   bool wait_reloc_ready(std::string * error)
   {
     const auto deadline = now() + rclcpp::Duration::from_seconds(_bootstrap_timeout_ms / 1000.0);
@@ -436,6 +452,11 @@ private:
     return false;
   }
 
+  // 将 AgvPollState 转换并发布到 ROS：
+  //   - current_pose (PoseStamped)：仅 has_pose=true 时发
+  //   - odom (Odometry)：包含速度信息
+  //   - TF：map -> base_link（可关闭，让其他节点接管 TF）
+  //   - status (AgvStatus)：始终发布，connected=false 时其他字段可能无效
   void publish_outputs(const AgvPollState & state)
   {
     const auto stamp = now();
@@ -494,6 +515,7 @@ private:
     _status_pub->publish(status);
   }
 
+  // AGV 到位判断：导航任务状态必须是 ARRIVED（task_status=4）
   bool is_arrived(const AgvPollState & state) const
   {
     return state.has_nav && state.task_status == TASK_STATUS_ARRIVED;
@@ -504,6 +526,8 @@ private:
     return !state.has_speed || state.is_stop;
   }
 
+  // 电量归一化：厂商可能返回 0~1（比例）或 0~100（百分比），统一转成百分比
+  // 返回 -1 表示数据无效（查询失败）
   float to_battery_percent(const double battery_level) const
   {
     if (battery_level < 0.0) {
@@ -515,6 +539,7 @@ private:
     return static_cast<float>(std::min(100.0, battery_level));
   }
 
+  // 错误码优先级：BOOTSTRAP_PENDING > DISCONNECTED > EMERGENCY > BLOCKED > ALARM > 最近错误 > OK
   std::string map_error_code(const AgvPollState & state) const
   {
     if (_enable_bootstrap && !_bootstrap_ready) {

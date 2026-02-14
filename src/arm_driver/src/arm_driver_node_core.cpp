@@ -46,6 +46,8 @@ ArmDriverNode::ArmDriverNode(const rclcpp::Node::SharedPtr & node)
     internal_joint_names_.size());
 }
 
+// 核心初始化：建立 EtherCAT 管理器和驱动，读取初始硬件状态。
+// 先对齐 count_zero（防止跨 π 边界的计数溢出），再同步命令位置为当前实际位置（防止上电跳变）。
 void ArmDriverNode::initialize_core()
 {
   manager_ = std::make_unique<elfin_ethercat_driver::EtherCatManager>(ethernet_name_);
@@ -62,6 +64,8 @@ void ArmDriverNode::initialize_core()
   synchronize_commands_to_current_locked();
 }
 
+// 扫描 EtherCAT 总线上的模块，建立"模块列表"和"关节名->内部索引"映射。
+// 每个模块对应 2 个轴（axis1/axis2），顺序由厂商 elfin_ethercat_driver 确定。
 void ArmDriverNode::initialize_axis_layout()
 {
   const size_t module_count = core_driver_->getEtherCATClientNumber();
@@ -91,6 +95,11 @@ void ArmDriverNode::initialize_axis_layout()
   build_command_order_mapping();
 }
 
+// 从厂商驱动读取单个轴的参数并计算换算系数：
+//   count_rad_factor = reduction_ratio * axis_position_factor / (2π)
+//     表示 1 弧度对应多少个编码器计数
+//   count_rad_per_s_factor = count_rad_factor / kVelocityScale
+//   count_nm_factor = axis_torque_factor / reduction_ratio
 void ArmDriverNode::init_axis_from_core(AxisState & axis, const size_t joint_index)
 {
   axis.name = core_driver_->getJointName(joint_index);
@@ -104,6 +113,9 @@ void ArmDriverNode::init_axis_from_core(AxisState & axis, const size_t joint_ind
   axis.count_nm_factor = axis.axis_torque_factor / axis.reduction_ratio;
 }
 
+// 建立"外部命令关节名顺序"到"内部轴索引"的映射。
+// 意义：MoveIt2 发出的 JointState 关节名顺序可能与硬件轴顺序不一致，
+// 这里将二者对齐，避免张冠李戴发错关节指令。
 void ArmDriverNode::build_command_order_mapping()
 {
   command_to_internal_indices_.clear();
@@ -166,6 +178,9 @@ int32_t ArmDriverNode::position_to_counts(const double position, const AxisState
   return static_cast<int32_t>(cmd_count);
 }
 
+// 对齐所有轴的 count_zero：若当前计数对应的角度在 [-π, π] 之外，
+// 则将 count_zero 偏移一整圈（2π 对应的计数），使得关节角始终在正常范围内。
+// 这是为了处理上电时绝对编码器位置可能超出表示范围的问题。
 void ArmDriverNode::align_count_zeros_locked()
 {
   for (auto & module : modules_) {
@@ -188,6 +203,8 @@ void ArmDriverNode::align_axis_count_zero_locked(AxisState & axis, const int32_t
   }
 }
 
+// 从 EtherCAT 读取所有关节的位置/速度/力矩计数，并换算为 SI 单位（弧度/rad·s⁻¹/N·m）。
+// 必须在 data_mutex_ 保护下调用（由定时器/线程持锁后执行）。
 bool ArmDriverNode::read_hardware_state_locked()
 {
   try {
@@ -217,6 +234,8 @@ bool ArmDriverNode::read_hardware_state_locked()
   return true;
 }
 
+// 将命令位置同步为当前实际位置，用于初始化或紧急停止后防止位置跳变。
+// 确保机械臂下一次写入命令时从当前位置平滑开始运动。
 void ArmDriverNode::synchronize_commands_to_current_locked()
 {
   for (auto & module : modules_) {
@@ -225,6 +244,8 @@ void ArmDriverNode::synchronize_commands_to_current_locked()
   }
 }
 
+// 将 command_position 写入到 EtherCAT PDO（位置控制模式），速度前馈设为 0。
+// 若驱动未处于位置模式则先切换，保证控制模式一致。
 bool ArmDriverNode::write_joint_commands_locked()
 {
   try {
@@ -247,6 +268,11 @@ bool ArmDriverNode::write_joint_commands_locked()
   return true;
 }
 
+// 从 JointState 消息中提取目标位置到内部 targets 数组。
+// 支持三种格式：
+//   1. 带 name 字段（按关节名查找，可部分指定）
+//   2. 不带 name、长度 = command_joint_names_ 数量（按 command 顺序）
+//   3. 不带 name、长度 = 所有内部关节数量（按内部顺序）
 bool ArmDriverNode::fill_command_targets_locked(
   const sensor_msgs::msg::JointState & msg,
   std::vector<double> & targets,

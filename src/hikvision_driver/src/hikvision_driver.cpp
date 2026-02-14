@@ -276,6 +276,9 @@ void HikvisionDriverNode::configure_gige_network(const MV_CC_DEVICE_INFO* device
             packet_size);
         return;
     }
+    // GevSCPSPacketSize：GigE Vision 流通道包大小（Streaming Channel Packet Size）
+    // 设为 SDK 推荐最优值，使每帧图像被切分为合适大小的 UDP 包，避免因包过大导致网络丢包
+    // 典型值约 8164 字节（1500 MTU）或 8192+（巨帧网卡），需与网卡 MTU 匹配
     nRet = MV_CC_SetIntValue(camera_handle, "GevSCPSPacketSize", packet_size);
     if (nRet != MV_OK) {
         RCLCPP_WARN(
@@ -385,6 +388,8 @@ void HikvisionDriverNode::grab() {
     // Init convert param
     convert_param.nWidth = img_info.nWidthValue;
     convert_param.nHeight = img_info.nHeightValue;
+    // enDstPixelType = BGR8：MV SDK 将相机原始 Bayer 格式（如 BayerRG8/BayerGB8）转换为 BGR8
+    // ROS 图像消息使用 "bgr8" 编码，与 OpenCV 默认通道顺序一致，无需额外转换
     convert_param.enDstPixelType = PixelType_Gvsp_BGR8_Packed;
 
     // 创建消息
@@ -402,6 +407,8 @@ void HikvisionDriverNode::grab() {
         }
         
         // 触发模式：等待触发标志
+        // trigger_flag 是 std::atomic<bool>，由 ROS 服务回调线程写，此处采集线程读
+        // 使用 atomic 避免 data race，load() 默认使用 memory_order_seq_cst 保证可见性
         if (use_trigger_mode && !trigger_flag.load()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
             continue;
@@ -423,6 +430,9 @@ void HikvisionDriverNode::grab() {
             MV_CC_ConvertPixelType(camera_handle, &convert_param);
 
             if (rotate_180) {
+                // 遍历图像前半部分像素（共 width*height/2 个）
+                // 每个像素 i 与对称位置 (总像素数-1-i) 互换 BGR 三个通道
+                // 等价于将图像旋转 180°（先水平翻转再垂直翻转），避免使用 OpenCV 降低依赖
                 for (unsigned i = 0; i < img_info.nWidthValue * img_info.nHeightValue / 2; i++) {
                     std::swap(image_msg.data[i * 3],
                               image_msg.data[(img_info.nWidthValue * img_info.nHeightValue - 1 - i) * 3]);
@@ -447,6 +457,8 @@ void HikvisionDriverNode::grab() {
             fail_cnt++;
         }
 
+        // 连续 5 帧取图失败才触发重连，避免单帧偶发超时（网络抖动/驱动瞬时错误）导致不必要的重启
+        // 重启代价较高（需要重新 init_camera），所以设置计数门槛而非单次失败立刻重启
         if (fail_cnt > 5) {
             RCLCPP_FATAL(this->get_logger(), "Camera failed!");
             grab_on = false;
@@ -472,6 +484,8 @@ void HikvisionDriverNode::reset() {
 
 void HikvisionDriverNode::open_device() {
     UPDBE(MV_CC_OpenDevice(camera_handle));
+    // 先关闭再重新打开，确保相机状态机复位到初始状态
+    // 某些海康相机在上次异常退出后会残留内部状态，直接打开可能导致取流失败
     UPDBE(MV_CC_CloseDevice(camera_handle));
     // 来回开关, 确保相机状态正常
     UPDBE(MV_CC_OpenDevice(camera_handle));

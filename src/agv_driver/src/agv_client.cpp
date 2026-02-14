@@ -15,6 +15,8 @@ bool nearly_zero(const double value, const double epsilon = 1e-4)
   return std::abs(value) <= epsilon;
 }
 
+// 以下三个函数用正则从 JSON 字符串提取单个字段值，避免引入 nlohmann/rapidjson 等库
+// 注意：这是轻量实现，不支持嵌套/数组结构，仅适合厂商简单响应格式
 std::optional<int> json_get_int(const std::string & json, const std::string & key)
 {
   const std::regex re("\\\"" + key + "\\\"\\s*:\\s*(-?[0-9]+)");
@@ -80,6 +82,8 @@ void AgvClient::set_log_io(const bool enabled, const size_t max_chars)
   _transport.set_log_io(enabled, max_chars);
 }
 
+// 抢占控制锁（cmd 4005）：防止多个控制端同时发指令
+// nick_name 是本驱动的标识名，用于查询"当前是谁持锁"
 bool AgvClient::lock_control(const std::string & nick_name, std::string * error)
 {
   std::string response;
@@ -121,6 +125,8 @@ bool AgvClient::query_current_lock(
   return true;
 }
 
+// 请求 AGV 加载指定地图文件（cmd 2022）
+// map_name 是 AGV 内置的地图名称，需与 AGV 管理软件中的配置一致
 bool AgvClient::load_map(const std::string & map_name, std::string * error)
 {
   std::string response;
@@ -129,6 +135,8 @@ bool AgvClient::load_map(const std::string & map_name, std::string * error)
   return request(2022U, payload, &response, error);
 }
 
+// 查询地图加载状态（cmd 1022）
+// loadmap_status: 0=失败, 1=成功, 2=加载中
 bool AgvClient::query_loadmap_status(int * loadmap_status, std::string * error)
 {
   std::string response;
@@ -151,6 +159,7 @@ bool AgvClient::query_loadmap_status(int * loadmap_status, std::string * error)
   return true;
 }
 
+// 启动自动重定位（cmd 2002）：让 AGV 在已加载地图中自动确定当前位置（激光/视觉匹配）
 bool AgvClient::start_reloc_auto(std::string * error)
 {
   std::string response;
@@ -169,6 +178,8 @@ bool AgvClient::confirm_loc(std::string * error)
   return request(2003U, "", &response, error);
 }
 
+// 查询重定位状态（cmd 1021）
+// reloc_status: 0=初始化, 1=成功, 2=重定位中, 3=完成(旧版本兼容值)
 bool AgvClient::query_reloc_status(int * reloc_status, std::string * error)
 {
   std::string response;
@@ -191,6 +202,9 @@ bool AgvClient::query_reloc_status(int * reloc_status, std::string * error)
   return true;
 }
 
+// 向 AGV 发送导航目标（cmd 3051，freeGo 自由导航模式）
+// x/y 单位：米（地图坐标系），yaw 单位：弧度
+// AGV 收到后自动规划路径并导航到目标点
 bool AgvClient::send_goal(const double x, const double y, const double yaw, std::string * error)
 {
   std::string response;
@@ -203,6 +217,8 @@ bool AgvClient::send_goal(const double x, const double y, const double yaw, std:
   return request(3051U, payload, &response, error);
 }
 
+// 发送开环速度指令（cmd 2010）：直接控制 AGV 以指定速度运动 duration_ms 毫秒
+// 用于调试或手动微调，不依赖地图/导航。vx/vy 单位：m/s，w 单位：rad/s
 bool AgvClient::send_open_loop_motion(
   const double vx,
   const double vy,
@@ -226,6 +242,9 @@ bool AgvClient::stop_open_loop_motion(std::string * error)
   return request(2000U, "", &response, error);
 }
 
+// 一次性查询所有关键状态并聚合到 AgvPollState。
+// 内部串行调用7个子查询（位置/速度/导航状态/电量/障碍/急停/告警），
+// 只要有一个失败就标记 connected=false，但仍尝试其余查询以获取尽可能多的信息。
 bool AgvClient::poll_state(AgvPollState * state, std::string * error)
 {
   if (state == nullptr) {
@@ -290,6 +309,7 @@ bool AgvClient::poll_state(AgvPollState * state, std::string * error)
   return ok;
 }
 
+// cmd 1004: 查询当前位置（x, y 米，angle 弧度）
 bool AgvClient::query_position(AgvPollState * state, std::string * error)
 {
   std::string response;
@@ -315,6 +335,8 @@ bool AgvClient::query_position(AgvPollState * state, std::string * error)
   return true;
 }
 
+// cmd 1005: 查询当前速度（vx/vy m/s，w rad/s）
+// 若响应没有 is_stop 字段，则用速度近零判断代替
 bool AgvClient::query_speed(AgvPollState * state, std::string * error)
 {
   std::string response;
@@ -340,6 +362,8 @@ bool AgvClient::query_speed(AgvPollState * state, std::string * error)
   return true;
 }
 
+// cmd 1020: 查询导航任务状态（task_status）
+// task_status=4 表示到达目标点（TASK_STATUS_ARRIVED）
 bool AgvClient::query_nav_status(AgvPollState * state, std::string * error)
 {
   std::string response;
@@ -352,6 +376,7 @@ bool AgvClient::query_nav_status(AgvPollState * state, std::string * error)
   return true;
 }
 
+// cmd 1007: 查询电池电量（battery_level，0~1 或 0~100，两种格式均兼容）
 bool AgvClient::query_battery(AgvPollState * state, std::string * error)
 {
   std::string response;
@@ -375,6 +400,8 @@ bool AgvClient::query_blocked(AgvPollState * state, std::string * error)
   return true;
 }
 
+// cmd 1012: 查询急停状态（hardware emergency 或 software emergency）
+// 任一触发都视为 emergency=true
 bool AgvClient::query_emergency(AgvPollState * state, std::string * error)
 {
   std::string response;
@@ -388,6 +415,8 @@ bool AgvClient::query_emergency(AgvPollState * state, std::string * error)
   return true;
 }
 
+// cmd 1050: 查询告警列表，按严重程度分级：FATAL > ERROR > WARNING
+// 通过检测响应 JSON 中是否存在非空数组来判断（不做完整解析）
 bool AgvClient::query_alarm(AgvPollState * state, std::string * error)
 {
   std::string response;

@@ -18,6 +18,9 @@ public:
         alerts_pub_ = this->create_publisher<std_msgs::msg::String>("/inspection/alerts", 10);
 
         // 订阅各节点状态
+        // 使用 current_pose 而非 agv/status 来检测 AGV 驱动存活性
+        // 注意：若 AGV 定位丢失，current_pose 可能停止发布但 AGV 驱动本身仍在运行
+        // 后续应改为订阅 /inspection/agv/status（见 CLAUDE.md 架构约定）
         agv_status_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
             "/inspection/agv/current_pose", 10,
             [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
@@ -43,11 +46,14 @@ private:
         auto now = this->now();
 
         // 检查 AGV 状态
+        // rclcpp::Duration(5, 0) = 5 秒超时门限：若 AGV 5 秒未发布位姿，则视为失联
+        // 使用消息时间戳差值而非绝对时间，避免时钟跳变导致误报
         if (now - last_agv_update_ > rclcpp::Duration(5, 0)) {
             publish_alert("AGV driver not responding");
         }
 
         // 检查机械臂状态
+        // 机械臂以 /joint_states 为心跳，同样使用 5 秒超时
         if (now - last_arm_update_ > rclcpp::Duration(5, 0)) {
             publish_alert("Arm driver not responding");
         }
