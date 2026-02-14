@@ -12,6 +12,15 @@
   <exec_depend>hikvision_driver</exec_depend>
   <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>agv_driver</exec_depend>
+  <exec_depend>arm_driver</exec_depend>
+  <exec_depend>arm_controller</exec_depend>
+  <exec_depend>pose_detector</exec_depend>
+  <exec_depend>path_planner</exec_depend>
+  <exec_depend>defect_detector</exec_depend>
+  <exec_depend>task_coordinator</exec_depend>
+  <exec_depend>inspection_gateway</exec_depend>
+  <exec_depend>foxglove_bridge</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
