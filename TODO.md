@@ -10,12 +10,13 @@
 
 ## P0（必须，先把效果跑出来）
 
-- [ ] 实现 `inspection_gateway`（gRPC server）最小可用闭环
-- [ ] 支持控制面：`Start/Pause/Resume/Stop/GetTaskStatus/SubscribeSystemState`
-- [ ] 支持导航底图：`GetNavMap`（ROS 调 `agv_driver/get_nav_map`，网关侧缓存）
+- [x] 实现 `inspection_gateway`（gRPC server）最小可用闭环（启动/ROS bridge/落盘/cache/proto 加载）
+- [x] 支持控制面：`Start/Pause/Resume/Stop/GetTaskStatus/SubscribeSystemState`
+- [x] 支持导航底图：`GetNavMap`（网关侧已实现；依赖 ROS `agv_driver/get_nav_map`）
+- [x] 支持媒体下载：`DownloadMedia`（网关侧 `media_store` 已实现）
 - [ ] `agv_driver` 实现 `get_nav_map` service server（优先返回 map_id/resolution/origin/thumbnail；底图可渐进增强）
 - [ ] `task_coordinator` 补齐“按 waypoint 执行”的真实下发：AGV goal -> 等到位停止 -> 机械臂动作 -> 触发相机/检测 -> 推进进度
-- [ ] 取图链路最小化可回显：至少能把抓拍图变成可下载的 `media_id`（DownloadMedia），HMI 能看缩略图
+- [ ] 取图链路最小化可回显：抓拍图落盘成可下载 `media_id` + 能被 HMI 列表/回看（`ListCaptures` + thumbnail）
 - [ ] TF/标定口径统一并可验证：`map->base_link->arm_base->tcp->camera`（把当前 `tool0`/URDF frame 不一致的问题一次性定死）
 
 ## P1（规划与约束，对齐 inspection-api 语义）
@@ -35,4 +36,3 @@
 - [ ] 为关键模块补单测：`agv_map_parser`、`task_coordinator` 核心状态机（core）等
 - [ ] `inspection_supervisor` 改为订阅 `/inspection/agv/status` + `/inspection/arm/status` + `/inspection/state`，并把健康/告警换成结构化 msg
 - [ ] Bringup 参数体系收敛：所有 topic/service 名称与 namespace 通过 launch 控制，不在代码里散落字符串
-
