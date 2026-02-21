@@ -1,6 +1,6 @@
 """Pure conversion functions: ROS2 messages -> Pydantic models.
 
-No ROS2 or gRPC imports at module level.  ROS message objects are accessed
+No ROS2 imports at module level.  ROS message objects are accessed
 through duck-typing (getattr) so this module stays unit-testable without a
 running ROS2 environment.
 """

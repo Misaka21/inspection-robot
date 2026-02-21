@@ -1,2 +1,2 @@
-# Domain types live here (no ROS / no gRPC imports).
+# Domain types and converters (no ROS imports).
 

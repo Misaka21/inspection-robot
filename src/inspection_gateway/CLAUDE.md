@@ -51,7 +51,6 @@ inspection_gateway/
 │   └── runtime.py       # GatewayRuntime (task_id 等运行时状态)
 ├── frontend/            # 前端构建产物 (由 inspection-site 生成)
 │   └── dist/            # npm run build 输出, FastAPI 静态托管
-└── rpc/                 # [废弃] 旧 gRPC 层, 保留在 git 历史
 ```
 
 强制约束：

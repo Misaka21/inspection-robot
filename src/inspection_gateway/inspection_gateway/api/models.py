@@ -1,6 +1,5 @@
 """Pydantic v2 data models — single source of truth for the REST / WebSocket API contract.
 
-These models replace the protobuf message definitions from inspection-api/proto/inspection_gateway.proto.
 FastAPI uses them for automatic request validation, response serialization, and OpenAPI doc generation.
 """
 

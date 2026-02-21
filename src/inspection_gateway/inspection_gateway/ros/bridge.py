@@ -76,7 +76,7 @@ class RosBridge(Node):
         self._state_hub.publish(msg)
 
     def _call(self, client, req, service_name: str, timeout_s: float):
-        # gRPC handlers run in a thread pool; serialize ROS service calls to avoid
+        # HTTP handlers may run in a thread pool; serialize ROS service calls to avoid
         # any rclpy client thread-safety surprises.
         with self._call_lock:
             if not client.wait_for_service(timeout_sec=timeout_s):

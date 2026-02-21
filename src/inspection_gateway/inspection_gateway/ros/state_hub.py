@@ -35,7 +35,7 @@ class StateHub:
     Thread-safe hub for SystemState snapshots.
 
     ROS subscription thread calls publish().
-    gRPC streaming handlers call subscribe() and wait on per-subscriber queues.
+    WebSocket / HTTP handlers call subscribe() and wait on per-subscriber queues.
     """
 
     def __init__(self) -> None:
