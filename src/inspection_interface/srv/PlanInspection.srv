@@ -1,0 +1,13 @@
+# Plan inspection request
+string model_id
+string task_name
+# Planning options (JSON-encoded for flexibility)
+string options_json
+---
+# Plan inspection response
+bool success
+string message
+string plan_id
+# Planning results as JSON (InspectionPath + PlanningStatistics)
+string path_json
+string stats_json
