@@ -10,15 +10,10 @@ def generate_launch_description():
         default_value="/inspection",
         description="Namespace for inspection system (also passed to inspection_gateway --ros-root-ns)",
     )
-    grpc_port_arg = DeclareLaunchArgument(
-        "grpc_port",
-        default_value="50051",
-        description="gRPC listen port",
-    )
-    grpc_workers_arg = DeclareLaunchArgument(
-        "grpc_max_workers",
-        default_value="16",
-        description="gRPC thread pool size",
+    port_arg = DeclareLaunchArgument(
+        "port",
+        default_value="8080",
+        description="HTTP listen port (REST + WebSocket + static files)",
     )
     data_dir_arg = DeclareLaunchArgument(
         "data_dir",
@@ -28,7 +23,7 @@ def generate_launch_description():
     cache_dir_arg = DeclareLaunchArgument(
         "cache_dir",
         default_value="~/.cache/inspection_gateway",
-        description="Local cache dir for generated protobuf modules",
+        description="Local cache dir",
     )
 
     node = Node(
@@ -38,10 +33,8 @@ def generate_launch_description():
         namespace=LaunchConfiguration("namespace"),
         output="screen",
         arguments=[
-            "--grpc-port",
-            LaunchConfiguration("grpc_port"),
-            "--grpc-max-workers",
-            LaunchConfiguration("grpc_max_workers"),
+            "--port",
+            LaunchConfiguration("port"),
             "--data-dir",
             LaunchConfiguration("data_dir"),
             "--cache-dir",
@@ -53,8 +46,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         namespace_arg,
-        grpc_port_arg,
-        grpc_workers_arg,
+        port_arg,
         data_dir_arg,
         cache_dir_arg,
         node,

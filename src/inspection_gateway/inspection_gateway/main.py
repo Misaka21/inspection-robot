@@ -7,19 +7,17 @@ from typing import Optional
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 
+from .api.app import create_app
+from .domain.runtime import GatewayRuntime
 from .ros.bridge import RosBridge, RosNames
 from .ros.state_hub import StateHub
-from .rpc.proto_loader import load_proto_modules
-from .rpc.server import GrpcServerConfig, start_server
-from .rpc.servicer import GatewayRuntime, InspectionGatewayServicer
 from .store.cad_store import CadStore
 from .store.media_store import MediaStore
 
 
 def _parse_args(argv: Optional[list[str]] = None) -> tuple[argparse.Namespace, list[str]]:
     parser = argparse.ArgumentParser(prog="inspection_gateway")
-    parser.add_argument("--grpc-port", type=int, default=50051)
-    parser.add_argument("--grpc-max-workers", type=int, default=16)
+    parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--data-dir", type=str, default="~/.ros/inspection_gateway")
     parser.add_argument("--cache-dir", type=str, default="~/.cache/inspection_gateway")
     parser.add_argument("--ros-root-ns", type=str, default="/inspection")
@@ -51,8 +49,6 @@ def main(argv: Optional[list[str]] = None) -> None:
 
     root_ns = _normalize_root_ns(str(args.ros_root_ns))
 
-    proto = load_proto_modules(cache_dir=cache_dir)
-
     state_hub = StateHub()
     names = RosNames(root_ns=root_ns)
 
@@ -68,29 +64,31 @@ def main(argv: Optional[list[str]] = None) -> None:
     cad_store = CadStore(root_dir=data_dir)
     runtime = GatewayRuntime()
 
-    servicer = InspectionGatewayServicer(
-        pb2=proto.pb2,
-        ros=ros,
+    # Resolve frontend dist directory (built React app)
+    pkg_dir = Path(__file__).resolve().parent
+    frontend_dir = pkg_dir / "frontend" / "dist"
+    if not frontend_dir.is_dir():
+        frontend_dir = None
+
+    app = create_app(
+        bridge=ros,
         state_hub=state_hub,
         media_store=media_store,
         cad_store=cad_store,
         runtime=runtime,
-        cache_dir=cache_dir,
+        frontend_dir=frontend_dir,
     )
 
-    cfg = GrpcServerConfig(port=int(args.grpc_port), max_workers=int(args.grpc_max_workers))
-    server = start_server(proto.pb2_grpc, servicer, cfg)
-    log.info("inspection_gateway started (grpc_port=%d, ros_root_ns=%s, data_dir=%s)", cfg.port, root_ns, data_dir)
+    import uvicorn
+
+    port = int(args.port)
+    log.info("inspection_gateway starting (port=%d, ros_root_ns=%s, data_dir=%s)", port, root_ns, data_dir)
 
     try:
-        server.wait_for_termination()
+        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
     except KeyboardInterrupt:
         pass
     finally:
-        try:
-            server.stop(grace=1).wait(timeout=2)
-        except Exception:
-            pass
         try:
             executor.shutdown()
         except Exception:

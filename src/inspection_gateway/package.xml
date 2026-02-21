@@ -2,8 +2,8 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>inspection_gateway</name>
-  <version>0.0.0</version>
-  <description>gRPC gateway bridging inspection-hmi and ROS2</description>
+  <version>0.1.0</version>
+  <description>FastAPI gateway bridging Web HMI and ROS2</description>
   <maintainer email="user@example.com">user</maintainer>
   <license>MIT</license>
 
@@ -12,10 +12,10 @@
   <exec_depend>rclpy</exec_depend>
   <exec_depend>inspection_interface</exec_depend>
 
-  <!-- Python deps (typically installed via apt/pip in deployment image) -->
-  <exec_depend>python3-grpcio</exec_depend>
-  <exec_depend>python3-grpcio-tools</exec_depend>
-  <exec_depend>python3-protobuf</exec_depend>
+  <!-- Python deps (typically installed via pip in deployment image) -->
+  <exec_depend condition="$ROS_PYTHON_VERSION == 3">python3-fastapi</exec_depend>
+  <exec_depend condition="$ROS_PYTHON_VERSION == 3">python3-uvicorn</exec_depend>
+  <exec_depend condition="$ROS_PYTHON_VERSION == 3">python3-pydantic</exec_depend>
 
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
@@ -27,4 +27,3 @@
     <build_type>ament_python</build_type>
   </export>
 </package>
-
