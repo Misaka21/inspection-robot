@@ -86,7 +86,7 @@ src/
 ├── defect_detector/          # 图像缺陷检测
 ├── task_coordinator/         # 任务状态机编排
 ├── inspection_interface/     # 消息/服务定义
-├── inspection_gateway/       # gRPC gateway (HMI <-> ROS2 桥接)
+├── inspection_gateway/       # Web gateway (FastAPI REST/WS, HMI <-> ROS2 桥接)
 ├── inspection_bringup/      # 启动文件
 ├── inspection_supervisor/    # 系统健康监控
 └── realsense_driver/        # RealSense 深度相机
@@ -98,7 +98,7 @@ src/
 - 算法层: pose_detector, path_planner, defect_detector
 - 协调层: task_coordinator
 - 基础设施: inspection_interface, inspection_bringup, inspection_supervisor
-- 对外桥接: inspection_gateway（gRPC server，运行在机器人端）
+- 对外桥接: inspection_gateway（FastAPI REST/WS server，运行在机器人端，前端源码在独立 inspection-site 仓库）
 
 ### 注意事项
 - 官方 elfin_ros_control 未移植（使用 topic 通信代替 ros2_control）
