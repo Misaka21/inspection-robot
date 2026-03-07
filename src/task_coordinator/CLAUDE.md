@@ -12,7 +12,7 @@
 不负责：
 - 规划算法（`path_planner`）
 - 控制算法（drivers/controllers）
-- 对外 gRPC（`inspection_gateway`）
+- 对外 REST/WS API（`inspection_gateway`）
 
 ## 2. Public ROS API（当前实现）
 
@@ -73,14 +73,20 @@ flowchart TB
   CAM["hikvision_driver"] --> DET["defect_detector"]
   DET -->|result| CO
 
-  CO -->|/inspection/state| GW["inspection_gateway (future)"]
+  CO -->|/inspection/state| GW["inspection_gateway"]
 ```
 
-## 5. 与 inspection-api 对齐时的落点（后续）
+### ⚠ 已知问题
 
-`task_coordinator` 最终要对齐 gRPC 的 `TaskStatus`：
+- **step 3 空操作**：`execute_current_waypoint()` step 3 只打日志，未实际发布 `arm_control/cart_goal` 或 `arm_control/joint_goal`，导致 step 4 等待 `_arm_arrived` 永不到达
+- **超时未启用**：`_agv_timeout_sec` / `_arm_timeout_sec` / `_detection_timeout_sec` 已声明但从未检查
+- **缺陷结果断流**：coordinator 只调 `detect_defect` Trigger 看 bool，不订阅 `defect_detector` 的结果 topic，缺陷详情丢失
+
+## 5. 与 REST/WS API 对齐时的落点（后续）
+
+`task_coordinator` 最终要对齐网关的 `TaskStatus` 模型：
 - `SystemState` 字段应能映射出 phase/progress/current_action/error_message + agv/arm 状态 + 当前 waypoint
-- 事件流建议新增 `/inspection/events` topic（结构化 capture/defect）
+- 事件流建议新增 `/inspection/events` topic（结构化 capture/defect），网关转为 WebSocket `inspection_event` 推送
 
 ## 6. 文档与 TODO 维护（必须）
 
