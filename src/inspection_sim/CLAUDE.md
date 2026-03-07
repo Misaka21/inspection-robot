@@ -12,7 +12,7 @@
 不负责：
 - 真实硬件通信（厂商协议只能在 `*_driver` 内）
 - 联合优化算法本体（应落在 `path_planner` 的 `PlannerCore`）
-- 对外 gRPC（由 `inspection_gateway` 负责）
+- 对外 REST/WS API（由 `inspection_gateway` 负责）
 
 ## 2. Public ROS API（目标接口，必须对齐）
 
@@ -57,11 +57,8 @@ namespace：
   - `fake_planning_node.py`
   - `fake_defect_node.py`
 - `inspection_sim/core/`
-  - `agv_kinematics.py`：简单 2D 运动模型 + 到位判定
-  - `arm_model.py`：关节状态/到位判定（V1 可为“延时到位”模型）
-  - `nav_map_provider.py`：底图/分辨率/origin 的生成与缓存（供 GetNavMap）
-- `inspection_sim/domain/`
-  - 纯数据结构（不依赖 ROS）
+  - `angles.py`：角度归一化工具
+  - `png.py`：地图底图 PNG 生成（供 GetNavMap）
 
 约束：
 - Node 只做 ROS IO（pub/sub/srv/timer），不写复杂状态机
