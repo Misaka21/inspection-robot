@@ -20,10 +20,25 @@
 - `/inspection/health`（建议后续换成结构化 msg，而不是 String）
 - `/inspection/alerts`（同上）
 
-订阅（建议以 status 为准）：
+订阅（目标接口，建议以 status 为准）：
 - `/inspection/agv/status` (`inspection_interface/msg/AgvStatus`)
 - `/inspection/arm/status` (`inspection_interface/msg/ArmStatus`)
 - `/inspection/state` (`inspection_interface/msg/SystemState`)
+
+### ⚠ 当前实际订阅（与上述目标不一致）
+
+代码实际订阅的是：
+- `/inspection/agv/current_pose` (`geometry_msgs/msg/PoseStamped`) — 应改为 `agv/status`
+- `/joint_states` (`sensor_msgs/msg/JointState`) — 应改为 `arm/status`
+- `/inspection/state` — **未订阅**
+
+此外：
+- `last_agv_update_` / `last_arm_update_` 初始化为 epoch 零时间，启动后会误报"驱动无响应"
+- 健康状态始终发布 `"OK"`，不受告警影响
+- 无 launch 文件，未纳入 `system.launch.py`
+- 所有私有成员使用 `suffix_` 风格，违反项目 `_prefix` 命名规范
+
+以上问题已记录在 `TODO.md` P3 分组。
 
 ## 3. 推荐内部架构
 
