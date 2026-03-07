@@ -36,8 +36,8 @@ inspection_gateway/
 │   ├── models.py           # Pydantic v2 数据模型 — API 契约的唯一事实来源
 │   ├── routes/
 │   │   ├── cad.py          # POST /api/v1/cad/upload
-│   │   ├── targets.py      # POST /api/v1/targets              ← 桩代码
-│   │   ├── plans.py        # POST/GET /api/v1/plans            ← 桩代码
+│   │   ├── targets.py      # POST /api/v1/targets
+│   │   ├── plans.py        # POST/GET /api/v1/plans
 │   │   ├── tasks.py        # POST /api/v1/tasks + pause/resume/stop/status
 │   │   ├── nav.py          # GET /api/v1/nav/map
 │   │   ├── media.py        # GET /api/v1/media/{id}
@@ -70,9 +70,9 @@ inspection_gateway/
 | HTTP | Path | 实现状态 | 说明 |
 |------|------|---------|------|
 | POST | `/api/v1/cad/upload` | **已实现** | multipart/form-data, SHA256 内容寻址写入 CadStore |
-| POST | `/api/v1/targets` | **桩代码** | 仅返回 `total_targets=len(targets)`，不存储不转发 |
-| POST | `/api/v1/plans` | **桩代码** | 返回 `UNAVAILABLE` |
-| GET | `/api/v1/plans/{plan_id}` | **桩代码** | 返回 `NOT_FOUND` |
+| POST | `/api/v1/targets` | **已实现** | 接收 targets 存储到 `GatewayRuntime.targets_by_model`，关联 `model_id` |
+| POST | `/api/v1/plans` | **已实现** | 网关侧弧形路径生成（临时方案），返回 `InspectionPath` + `plan_id` |
+| GET | `/api/v1/plans/{plan_id}` | **已实现** | 从 `runtime.plans` 缓存查询 |
 | POST | `/api/v1/tasks` | **已实现** | 调用 `RosBridge.start_inspection()` |
 | POST | `/api/v1/tasks/{id}/pause` | **已实现** | 调用 `RosBridge.pause_inspection()` |
 | POST | `/api/v1/tasks/{id}/resume` | **已实现** | 调用 `RosBridge.resume_inspection()` |
@@ -87,9 +87,9 @@ OpenAPI 文档自动生成: `http://localhost:8080/docs`
 
 ### 桩代码待实现清单
 
-1. **`POST /targets`** — 需要：接收 `SetTargetsRequest`，将 targets 持久化（内存或文件），关联到 `model_id`
-2. **`POST /plans`** — 需要：将 targets 转发给 ROS2 `path_planner`（或新增 ROS2 srv），返回 `InspectionPath` + `plan_id`
-3. **`GET /plans/{plan_id}`** — 需要：从缓存中读取已规划的路径，用于断点恢复/重连
+1. ~~**`POST /targets`**~~ — ✅ 已实现：接收 `SetTargetsRequest`，存储到 `runtime.targets_by_model`
+2. **`POST /plans`** — 当前为网关侧弧形路径生成（临时），需要：对接 ROS2 `path_planner` srv
+3. ~~**`GET /plans/{plan_id}`**~~ — ✅ 已实现：从 `runtime.plans` 缓存读取
 4. **`GET /tasks/{id}/captures`** — 需要：订阅 `InspectionEvent`（`CAPTURED`/`DEFECT_FOUND`），持久化到 store 中，按 task_id/point_id 查询
 5. **WebSocket `inspection_event`** — 需要：订阅 ROS2 的检测事件 topic，转为 `inspection_event` 类型推送给前端
 
@@ -109,7 +109,7 @@ OpenAPI 文档自动生成: `http://localhost:8080/docs`
 ```
 
 **当前实现：**
-- `system_state` — 推送 `TaskStatus`（含 AGV/Arm/phase/progress/interlock），来自 `StateHub` 订阅 ROS2 `SystemState` topic
+- `system_state` — 推送 `TaskStatus`（含 AGV/Arm/phase/progress），来自 `StateHub` 订阅 ROS2 `SystemState` topic
 - `ping` / `pong` — 客户端发 ping，服务端回 pong
 
 **待实现：**
@@ -172,7 +172,7 @@ OpenAPI 文档自动生成: `http://localhost:8080/docs`
 | `InspectionTarget` | `InspectionTarget` | `{point_id, group_id, surface, view}` |
 | `InspectionPoint` | `InspectionPoint` | `{agv_pose, arm_joint_goal[6], tcp_pose_goal, camera_pose}` |
 | `InspectionPath` | `InspectionPath` | `{waypoints[], estimated_distance_m, estimated_duration_s}` |
-| `TaskStatus` | `TaskStatus` | 含 `AgvStatus` + `ArmStatus` + interlock + progress |
+| `TaskStatus` | `TaskStatus` | 含 `AgvStatus` + `ArmStatus` + phase + progress |
 | `InspectionEvent` | `InspectionEvent` | `{type, image, defects[], camera_pose}` |
 | `NavMapInfo` | `NavMapInfo` | `{resolution, origin, image}` |
 
