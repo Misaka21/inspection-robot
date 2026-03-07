@@ -25,14 +25,14 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        上位机 (inspection-hmi)                    │
-│                     Qt HMI (Engineer/Operator)                    │
+│                     前端 (inspection-site)                        │
+│                  React HMI (Engineer/Operator)                    │
 └────────────────────────────┬────────────────────────────────────┘
-                             │ gRPC (inspection-api/proto/inspection_gateway.proto)
+                             │ REST API (/api/v1/*) + WebSocket (/ws)
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                     inspection_gateway (AGX)                      │
-│        对外：gRPC 服务端  对内：调用 ROS2 节点/服务/话题              │
+│        对外：FastAPI REST/WS  对内：调用 ROS2 节点/服务/话题         │
 └────────────────────────────┬────────────────────────────────────┘
                              │
                              ▼
@@ -69,7 +69,7 @@
 
 说明：
 - `inspection_gateway` 在本仓库中以 ROS2 包形式存在（建议部署在 AGX）：`src/inspection_gateway/`
-- HMI 不直接连接 ROS2，所有对外语义以 `inspection-api/proto/inspection_gateway.proto` 为准
+- 前端不直接连接 ROS2，所有对外 API 以 `inspection_gateway/api/models.py`（Pydantic v2）为准
 
 ## 4. 功能包索引
 
@@ -108,14 +108,14 @@
 | 包名 | 职责 |
 |------|------|
 | `inspection_interface` | 消息/服务定义 |
-| `inspection_gateway` | 对外 gRPC 网关（HMI <-> ROS2 桥接） |
+| `inspection_gateway` | Web 网关（FastAPI REST/WS，HMI ↔ ROS2 桥接） |
 | `inspection_bringup` | 启动管理 |
 | `inspection_supervisor` | 系统监控 |
 | `inspection_sim` | 无硬件联调（fake drivers + sim launch） |
 
 ## 5. API 优先级
 
-1. **外部契约层（最高）**：`inspection-api/proto/inspection_gateway.proto`
+1. **外部契约层（最高）**：`inspection_gateway/api/models.py`（Pydantic v2）+ OpenAPI 自动文档
 2. **机器人内部编排层**：`inspection_interface`（对齐网关语义）
 3. **设备厂商层（最低）**：AGV TCP API / 相机 SDK（仅驱动内部使用）
 
@@ -257,18 +257,17 @@ IDLE ──▶ LOCALIZING ──▶ PLANNING ──▶ EXECUTING ──▶ COMPL
 为了避免文档与实现漂移，本仓库不在此处复制 `.msg/.srv` 的字段列表。
 
 - 机器人内部接口：`src/inspection_interface/msg`、`src/inspection_interface/srv`
-- 对外契约：`inspection-api/proto/inspection_gateway.proto`
+- 对外 API 模型：`src/inspection_gateway/inspection_gateway/api/models.py`
 
 ## 9. TF 树
 
 ```
-map (SLAM全局坐标系)
+map (SLAM全局坐标系)                    ← agv_driver 发布 (map → base_link)
  └─ base_link (AGV底盘)
-      └─ arm_base (机械臂基座，静态标定)
+      └─ arm_base (机械臂基座)          ← ⚠ 静态标定，当前缺失，需补充
            └─ ... (URDF 链)
-                └─ tcp (末端工具坐标系，建议与 URDF 一致，例如 elfin_end_link 或 tool0 别名)
-                     ├─ realsense_frame (深度相机)
-                     └─ hikvision_frame (工业相机外参)
+                └─ tool0 (末端)         ← URDF 正解
+                     └─ hikvision_frame ← drivers.launch.py 静态 TF (tool0 → hikvision_frame)
 ```
 
 ## 10. 数据流
@@ -345,6 +344,7 @@ ros2 launch arm_controller arm_controller.launch.py
 - `~/` 仅用于节点私有的内部调试话题
 - 避免硬编码绝对话题名
 - 命名空间：`/inspection/*`
+- 对外 REST/WS API：以 `inspection_gateway/api/models.py` 为准
 
 ## 13. Launch 文件规范（参考 rm_bringup & radar_bring2）
 
@@ -366,29 +366,29 @@ ros2 launch arm_controller arm_controller.launch.py
 inspection_bringup/
 ├── launch/
 │   ├── system.launch.py          # 主启动文件（包含所有层）
-│   ├── drivers.launch.py         # 驱动层（相机、AGV、机械臂）
-│   ├── algorithms.launch.py      # 算法层（检测、规划）
+│   ├── drivers.launch.py         # 驱动层（相机、静态 TF）
+│   ├── camera_only.launch.py     # 仅相机（调试用）
 │   └── ...
 ├── config/
-│   ├── launch_params.yaml       # 全局启动参数
-│   ├── node_params/             # 各节点参数
-│   │   ├── task_coordinator_params.yaml
-│   │   ├── pose_detector_params.yaml
-│   │   └── ...
-│   └── config.24.home.yaml       # 场景配置文件
+│   ├── inspection.yaml           # 全局参数
+│   └── realsense.yaml            # RealSense 参数
 └── package.xml
 ```
 
 ### 13.3 参数文件示例
 
 ```yaml
-# config/launch_params.yaml
-rune: false                    # 是否启用打符功能
-hero_solver: false             # 是否使用英雄机甲解算
-navigation: false              # 是否启用导航
-namespace: "inspection"        # 命名空间
-video_play: false              # 是否播放视频（调试用）
-virtual_serial: false          # 是否使用虚拟串口
+# config/inspection.yaml（实际参数示例）
+namespace: "inspection"
+agv:
+  ip: "192.168.1.10"
+  bootstrap_timeout_ms: 60000
+arm:
+  ethernet_name: "enp3s0"
+  state_publish_rate_hz: 100.0
+hikvision:
+  use_trigger_mode: true
+  exposure_time: 5000.0
 ```
 
 ### 13.4 组件容器示例
