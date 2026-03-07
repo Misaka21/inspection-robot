@@ -9,12 +9,12 @@ def generate_launch_description():
     with_gateway_arg = DeclareLaunchArgument(
         "with_gateway",
         default_value="false",
-        description="Whether to start inspection_gateway (requires grpcio/grpcio-tools installed)",
+        description="Whether to start inspection_gateway (FastAPI REST/WS)",
     )
-    grpc_port_arg = DeclareLaunchArgument(
-        "grpc_port",
-        default_value="50051",
-        description="inspection_gateway gRPC listen port",
+    port_arg = DeclareLaunchArgument(
+        "port",
+        default_value="8080",
+        description="inspection_gateway HTTP listen port",
     )
 
     fake_agv = Node(
@@ -72,8 +72,8 @@ def generate_launch_description():
         namespace="/inspection",
         output="screen",
         arguments=[
-            "--grpc-port",
-            LaunchConfiguration("grpc_port"),
+            "--port",
+            LaunchConfiguration("port"),
             "--ros-root-ns",
             "/inspection",
         ],
@@ -82,7 +82,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         with_gateway_arg,
-        grpc_port_arg,
+        port_arg,
         fake_agv,
         fake_arm,
         fake_perception,

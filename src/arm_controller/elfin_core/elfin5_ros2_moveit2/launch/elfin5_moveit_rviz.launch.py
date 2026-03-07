@@ -8,12 +8,9 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.substitutions import LaunchConfiguration,Command, FindExecutable, PathJoinSubstitution
-from launch.actions import ExecuteProcess, IncludeLaunchDescription, RegisterEventHandler, DeclareLaunchArgument,Shutdown
-from launch.conditions import IfCondition, UnlessCondition
-from launch.event_handlers import OnProcessExit
-from launch.launch_description_sources import PythonLaunchDescriptionSource
-import xacro
+from launch.substitutions import LaunchConfiguration, Command, FindExecutable
+from launch.actions import DeclareLaunchArgument
+from launch.conditions import UnlessCondition
 import yaml
 
 # LOAD FILE:
@@ -184,19 +181,6 @@ def generate_launch_description():
     )
 
     # Load controllers
-    load_controllers = []
-    for controller in [
-        "elfin_arm_controller",
-        "joint_state_broadcaster",
-    ]:
-        load_controllers += [
-            ExecuteProcess(
-                cmd=["ros2 run controller_manager spawner.py {}".format(controller)],
-                shell=True,
-                output="screen",
-            )
-        ]
-
     elfin_controller_spawner = Node(
         package="controller_manager",
         executable="spawner",
@@ -210,13 +194,14 @@ def generate_launch_description():
     )
 
     return LaunchDescription(
-        [   
+        [
             rviz_arg,
+            static_tf,
+            robot_state_publisher,
+            ros2_control_node,
             rviz_node_full,
             run_move_group_node,
             elfin_controller_spawner,
-            joint_state_spawner
-
+            joint_state_spawner,
         ]
-        + load_controllers
     )

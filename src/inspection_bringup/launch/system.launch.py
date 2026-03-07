@@ -78,7 +78,7 @@ def generate_launch_description():
         }.items(),
     )
 
-    # HMI <-> ROS2 gateway (gRPC)
+    # HMI <-> ROS2 gateway (FastAPI REST/WS)
     inspection_gateway_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(get_package_share_directory('inspection_gateway'), 'launch', 'inspection_gateway.launch.py')
