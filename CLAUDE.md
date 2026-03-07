@@ -75,9 +75,9 @@ src/
 │   └── soem_ros2/            # SOEM 协议栈
 ├── arm_driver/               # 机械臂驱动 (调用 elfin_sdk)
 ├── arm_controller/           # MoveIt2 运动控制
-│   └── elfin_core/           # 包含 elfin5 URDF、消息、API
+│   └── elfin_core/           # 包含 elfin5 MoveIt2 配置、消息、API
 │       ├── elfin5_ros2_moveit2/  # MoveIt2 配置
-│       ├── elfin_description/     # URDF 模型
+│       ├── elfin_basic_api/      # 厂商 API（ROS1 移植）
 │       └── elfin_robot_msgs/      # 消息定义
 ├── agv_driver/               # AGV 底盘驱动 (TCP)
 ├── hikvision_driver/         # 海康工业相机驱动
@@ -89,6 +89,7 @@ src/
 ├── inspection_gateway/       # Web gateway (FastAPI REST/WS, HMI <-> ROS2 桥接)
 ├── inspection_bringup/      # 启动文件
 ├── inspection_supervisor/    # 系统健康监控
+├── elfin_description/       # Elfin5 URDF 模型（独立顶层包）
 └── realsense_driver/        # RealSense 深度相机
 ```
 
@@ -102,7 +103,7 @@ src/
 
 ### 注意事项
 - 官方 elfin_ros_control 未移植（使用 topic 通信代替 ros2_control）
-- elfin5 的 URDF 在 arm_controller/elfin_core/elfin_description/
+- elfin5 的 URDF 在 elfin_description/（独立顶层包，非 elfin_core 子目录）
 - realsense_driver 是适配层，使用系统包 ros-humble-realsense2-camera
 
 ### 系统依赖
