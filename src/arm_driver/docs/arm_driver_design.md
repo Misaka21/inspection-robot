@@ -6,17 +6,20 @@
 arm_driver/
 ├── CMakeLists.txt
 ├── package.xml
-├── elfin_core/                    # Elfin SDK 原始包（直接复制）
-│   ├── soem_ros2/                 # EtherCAT 协议栈
-│   ├── elfin_ethercat_driver/     # EtherCAT 硬件驱动
-│   ├── elfin_ros_control/         # ROS2 control 硬件接口
-│   └── elfin_robot_msgs/          # 消息定义
+├── launch/
+│   └── arm_driver.launch.py       # 启动入口
+├── config/
+│   └── arm_driver.yaml            # 参数配置
 ├── include/arm_driver/
-│   └── arm_driver_wrapper.hpp     # 包装器头文件
+│   ├── arm_driver_node.hpp
+│   └── arm_driver_node_core.hpp
 └── src/
-    ├── arm_driver_wrapper.cpp     # 包装器实现
-    └── arm_driver_node.cpp        # ROS2 节点入口
+    ├── arm_driver_node.cpp        # ROS2 节点入口
+    ├── arm_driver_node_core.cpp   # 核心驱动逻辑
+    └── arm_driver_node_ros.cpp    # ROS2 接口封装
 ```
+
+依赖位于工作区 `src/elfin_sdk/` 下的独立包（例如 `elfin_ethercat_driver`、`soem_ros2`），`arm_driver` 通过 `find_package` 使用，不再内嵌 `elfin_core` 目录。
 
 ## 2. 功能定义
 
@@ -45,7 +48,7 @@ arm_driver/
 
 | 话题 | 类型 | 频率 | 说明 |
 |------|------|------|------|
-| `/joint_states` | sensor_msgs/JointState | 250Hz | 关节状态（通过 elfin_ros_control 自动发布） |
+| `/joint_states` | sensor_msgs/JointState | 250Hz | 关节状态（由底层驱动链路发布） |
 | `~/status` | inspection_interface/ArmStatus | 10Hz | 机械臂状态（使能、故障、错误码） |
 
 #### 服务接口
@@ -162,54 +165,51 @@ void ArmDriverWrapper::statusTimerCallback()
 cmake_minimum_required(VERSION 3.8)
 project(arm_driver)
 
-# 编译选项
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# 依赖包
+# find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(inspection_interface REQUIRED)
+find_package(elfin_ethercat_driver REQUIRED)
 
-# 包含 elfin_core
-add_subdirectory(elfin_core/soem_ros2)
-add_subdirectory(elfin_core/elfin_robot_msgs)
-add_subdirectory(elfin_core/elfin_ethercat_driver)
-add_subdirectory(elfin_core/elfin_ros_control)
-
-# 包装器库
-add_library(${PROJECT_NAME}_wrapper SHARED
-  src/arm_driver_wrapper.cpp
+add_executable(arm_driver_node
+  src/arm_driver_node.cpp
+  src/arm_driver_node_core.cpp
+  src/arm_driver_node_ros.cpp
 )
-
-target_include_directories(${PROJECT_NAME}_wrapper PUBLIC
+target_include_directories(arm_driver_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-
-ament_target_dependencies(${PROJECT_NAME}_wrapper
-  rclcpp
-  sensor_msgs
-  std_srvs
-  inspection_interface
-)
-
-# 可执行文件
-add_executable(arm_driver_node src/arm_driver_node.cpp)
-target_link_libraries(arm_driver_node ${PROJECT_NAME}_wrapper)
-
-# 安装
-install(TARGETS
+  $<INSTALL_INTERFACE:include>)
+target_compile_features(arm_driver_node PUBLIC c_std_99 cxx_std_17)
+ament_target_dependencies(
   arm_driver_node
-  DESTINATION lib/${PROJECT_NAME}
+  "rclcpp"
+  "sensor_msgs"
+  "std_srvs"
+  "inspection_interface"
+  "elfin_ethercat_driver"
 )
+
+install(TARGETS arm_driver_node
+  DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY include/
-  DESTINATION include
-)
+  DESTINATION include)
+
+install(DIRECTORY launch config
+  DESTINATION share/${PROJECT_NAME})
+
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  set(ament_cmake_copyright_FOUND TRUE)
+  set(ament_cmake_cpplint_FOUND TRUE)
+  ament_lint_auto_find_test_dependencies()
+endif()
 
 ament_package()
 ```
@@ -221,10 +221,10 @@ ament_package()
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>arm_driver</name>
-  <version>0.1.0</version>
-  <description>Elfin arm EtherCAT driver wrapper</description>
-  <maintainer email="your@email.com">Your Name</maintainer>
-  <license>Apache-2.0</license>
+  <version>1.0.0</version>
+  <description>Robotic arm driver for the inspection system</description>
+  <maintainer email="user@example.com">user</maintainer>
+  <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
@@ -232,14 +232,10 @@ ament_package()
   <depend>sensor_msgs</depend>
   <depend>std_srvs</depend>
   <depend>inspection_interface</depend>
-
-  <!-- Elfin core 依赖 -->
-  <depend>soem_ros2</depend>
-  <depend>elfin_robot_msgs</depend>
   <depend>elfin_ethercat_driver</depend>
-  <depend>elfin_ros_control</depend>
-  <depend>controller_manager</depend>
-  <depend>hardware_interface</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
@@ -252,11 +248,8 @@ ament_package()
 ### 6.1 启动顺序
 
 ```bash
-# 1. 启动底层 EtherCAT 驱动和 ROS2 control
-ros2 launch arm_driver elfin_bringup.launch.py
-
-# 2. 启动包装器节点
-ros2 run arm_driver arm_driver_node
+# 启动 arm_driver（默认命名空间 /inspection/arm）
+ros2 launch arm_driver arm_driver.launch.py
 ```
 
 ### 6.2 Launch 文件示例
@@ -264,38 +257,42 @@ ros2 run arm_driver arm_driver_node
 ```python
 # arm_driver/launch/arm_driver.launch.py
 from launch import LaunchDescription
-from launch_ros.actions import Node, ComposableNodeContainer
-from launch_ros.descriptions import ComposableNode
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+from ament_index_python.packages import get_package_share_directory
+
+import os
 
 def generate_launch_description():
-    # 加载 elfin_ros_control (硬件接口)
-    elfin_controller = Node(
-        package='controller_manager',
-        executable='ros2_control_node',
-        parameters=['config/elfin_arm_control.yaml'],
-        output='screen'
+    namespace_arg = DeclareLaunchArgument(
+        "namespace",
+        default_value="/inspection/arm",
+        description="Namespace for arm_driver node",
+    )
+    params_file_arg = DeclareLaunchArgument(
+        "params_file",
+        default_value=os.path.join(
+            get_package_share_directory("arm_driver"),
+            "config",
+            "arm_driver.yaml",
+        ),
+        description="Path to ROS2 parameters file",
     )
 
-    # 加载 joint_trajectory_controller
-    load_controller = Node(
-        package='controller_manager',
-        executable='spawner',
-        arguments=['elfin_arm_controller', 'joint_state_broadcaster'],
-        output='screen'
-    )
-
-    # 包装器节点
-    wrapper_node = Node(
-        package='arm_driver',
-        executable='arm_driver_node',
-        namespace='/inspection/arm',
-        output='screen'
+    arm_driver_node = Node(
+        package="arm_driver",
+        executable="arm_driver_node",
+        name="arm_driver",
+        namespace=LaunchConfiguration("namespace"),
+        output="screen",
+        parameters=[LaunchConfiguration("params_file")],
     )
 
     return LaunchDescription([
-        elfin_controller,
-        load_controller,
-        wrapper_node
+        namespace_arg,
+        params_file_arg,
+        arm_driver_node
     ])
 ```
 

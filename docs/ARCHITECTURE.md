@@ -48,7 +48,7 @@
 │               │  │                 │  │                 │
 │ elfin_sdk    │  │ arm_controller  │  │task_coordinator│
 │  (EtherCAT)  │  │  (MoveIt2)      │  │  (状态机)       │
-│ arm_driver   │  │ + elfin_core    │  │                 │
+│ arm_driver   │  │  (依赖 elfin_sdk)│  │                 │
 │ agv_driver   │  └─────────────────┘  └─────────────────┘
 │ hikvision_   │         │                    │
 │   driver     │         ▼                    │
@@ -77,7 +77,7 @@
 
 | 包名 | 职责 | 备注 |
 |------|------|------|
-| `elfin_sdk` | Elfin 机械臂底层驱动 | 包含 elfin_ethercat_driver, soem_ros2 |
+| `elfin_sdk` | Elfin 机械臂底层驱动 | 包含 elfin_ethercat_driver, soem_ros2, elfin_core |
 | `arm_driver` | 机械臂 EtherCAT 驱动 | 调用 elfin_sdk |
 | `agv_driver` | AGV 底盘 TCP 驱动 | `/inspection/agv` |
 | `hikvision_driver` | 海康工业相机驱动 | `/inspection/hikvision` |
@@ -87,7 +87,7 @@
 
 | 包名 | 职责 | 备注 |
 |------|------|------|
-| `arm_controller` | MoveIt2 运动控制 | 包含 elfin_core (URDF/消息/API) |
+| `arm_controller` | MoveIt2 运动控制 | 运行时依赖 `elfin5_ros2_moveit2` |
 
 ### 4.3 算法层 (Algo)
 
