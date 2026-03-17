@@ -72,13 +72,13 @@ rclcpp::Publisher::SharedPtr pub_;
 src/
 ├── elfin_sdk/                # Elfin 机械臂底层驱动
 │   ├── elfin_ethercat_driver/ # EtherCAT 驱动
-│   └── soem_ros2/            # SOEM 协议栈
-├── arm_driver/               # 机械臂驱动 (调用 elfin_sdk)
-├── arm_controller/           # MoveIt2 运动控制
-│   └── elfin_core/           # 包含 elfin5 MoveIt2 配置、消息、API
+│   ├── soem_ros2/            # SOEM 协议栈
+│   └── elfin_core/           # Elfin 上层功能包（MoveIt2 配置/消息/API）
 │       ├── elfin5_ros2_moveit2/  # MoveIt2 配置
 │       ├── elfin_basic_api/      # 厂商 API（ROS1 移植）
-│       └── elfin_robot_msgs/      # 消息定义
+│       └── elfin_robot_msgs/     # 消息定义
+├── arm_driver/               # 机械臂驱动 (调用 elfin_sdk)
+├── arm_controller/           # MoveIt2 运动控制
 ├── agv_driver/               # AGV 底盘驱动 (TCP)
 ├── hikvision_driver/         # 海康工业相机驱动
 ├── pose_detector/            # 6D 位姿检测
