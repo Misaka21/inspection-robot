@@ -1,9 +1,9 @@
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
-#include <nav_msgs/msg/odometry.hpp>
 #include <std_srvs/srv/trigger.hpp>
-#include <moveit/move_group_interface/move_group_interface.h>
+
+#include "path_planner/planner_core.hpp"
 
 namespace path_planner {
 
@@ -11,78 +11,120 @@ class PathPlannerNode : public rclcpp::Node {
 public:
     PathPlannerNode()
         : Node("path_planner_node") {
-        RCLCPP_INFO(this->get_logger(), "Starting Path Planner Node");
-
-        // 订阅工件位姿
-        __workpiece_posesub = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-            "/inspection/perception/detected_pose", 10,
-            [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
-                _workpiece_pose = *msg;
-                _has_workpiece_pose = true;
-            });
-
-        // 订阅 AGV 当前位姿
-        __agv_posesub = this->create_subscription<geometry_msgs::msg::PoseStamped>(
-            "/inspection/agv/current_pose", 10,
-            [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
-                _agv_pose = *msg;
-                _has_agv_pose = true;
-            });
-
-        // 发布规划路径
-        _path_pub = this->create_publisher<geometry_msgs::msg::PoseArray>(
-            "path", 10);
+        RCLCPP_INFO(this->get_logger(), "Starting Path Planner Node with PlannerCore");
 
         // 声明参数
-        // camera_working_dist：相机到工件表面的最优工作距离（米），由相机景深决定
         this->declare_parameter("camera_working_dist", 0.3);
-        // arm_reach_max/min：机械臂末端（TCP）的可达半径范围（米），用于筛选有效站位
-        this->declare_parameter("arm_reach_max", 0.8);
+        this->declare_parameter("camera_dist_tolerance", 0.05);
         this->declare_parameter("arm_reach_min", 0.2);
-        // candidate_radius：以工件为中心，AGV 候选站位点的圆半径（米）
+        this->declare_parameter("arm_reach_max", 0.8);
         this->declare_parameter("candidate_radius", 0.6);
-        // candidate_yaw_step_deg：候选站位角度采样步长（度），越小覆盖越密集但候选点越多
-        this->declare_parameter("candidate_yaw_step_deg", 15.0);
+        this->declare_parameter("yaw_step_deg", 15.0);
+        this->declare_parameter("max_candidates_per_point", 5);
+
+        // 订阅输入
+        detection_points_sub_ = this->create_subscription<geometry_msgs::msg::PoseArray>(
+            "detection_points", 10,
+            [this](const geometry_msgs::msg::PoseArray::SharedPtr msg) {
+                detection_points_ = msg->poses;
+                has_detection_points_ = true;
+                RCLCPP_INFO(this->get_logger(), "Received %zu detection points",
+                            detection_points_.size());
+            });
+
+        agv_pose_sub_ = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+            "/inspection/agv/current_pose", 10,
+            [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
+                current_agv_pose_ = msg->pose;
+                has_agv_pose_ = true;
+            });
+
+        // 发布规划结果
+        path_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("path", 10);
 
         // 创建服务
-        _optimize_srv = this->create_service<std_srvs::srv::Trigger>(
+        plan_srv_ = this->create_service<std_srvs::srv::Trigger>(
             "optimize",
             [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                    std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
                 (void)request;
-                RCLCPP_INFO(this->get_logger(), "Received optimize request");
-                plan();  // 调用规划
-                response->success = true;
-                response->message = "Path optimization triggered";
+                response->success = execute_planning();
+                response->message = response->success ? "Planning successful" : last_error_;
             });
-    }
 
-    void plan() {
-        if (!_has_workpiece_pose || !_has_agv_pose) {
-            RCLCPP_WARN(this->get_logger(), "Missing workpiece or AGV pose");
+        // 初始化 PlannerCore
+        if (!planner_core_.init(shared_from_this())) {
+            RCLCPP_FATAL(this->get_logger(), "Failed to initialize PlannerCore");
             return;
         }
 
-        // TODO: 实现联合路径规划
-        // 1. 采样候选 AGV 站位：以工件为中心，在 candidate_radius 圆上按 yaw_step 采样
-        // 2. 位姿链反推 TCP：根据工件法向量 + camera_working_dist 计算每个站位的 TCP 目标
-        // 3. IK 求解筛选：对每个 TCP 目标调用 MoveIt/IKFast，过滤无解的站位
-        // 4. MoveJ 碰撞检查：验证关节空间轨迹是否无碰撞
-        // 5. 代价函数评估：综合移动距离、关节角度变化量等，按代价排序并输出最优路径序列
-
-        RCLCPP_INFO(this->get_logger(), "Path planning not yet implemented");
+        RCLCPP_INFO(this->get_logger(), "PathPlannerNode initialized");
     }
 
 private:
-    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr __workpiece_posesub;
-    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr __agv_posesub;
-    rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr _path_pub;
-    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr _optimize_srv;
+    bool execute_planning() {
+        if (!has_detection_points_) {
+            last_error_ = "No detection points received";
+            RCLCPP_ERROR(this->get_logger(), "%s", last_error_.c_str());
+            return false;
+        }
 
-    geometry_msgs::msg::PoseStamped _workpiece_pose;
-    geometry_msgs::msg::PoseStamped _agv_pose;
-    bool _has_workpiece_pose = false;
-    bool _has_agv_pose = false;
+        if (!has_agv_pose_) {
+            RCLCPP_WARN(this->get_logger(), "No AGV pose received, using origin");
+            current_agv_pose_.orientation.w = 1.0;  // 默认在原点
+        }
+
+        // 构造规划请求
+        PlannerCore::PlanningRequest req;
+        req.detection_points = detection_points_;
+        req.current_agv_pose = current_agv_pose_;
+
+        this->get_parameter("camera_working_dist", req.camera_working_dist);
+        this->get_parameter("camera_dist_tolerance", req.camera_dist_tolerance);
+        this->get_parameter("arm_reach_min", req.arm_reach_min);
+        this->get_parameter("arm_reach_max", req.arm_reach_max);
+        this->get_parameter("candidate_radius", req.candidate_radius);
+        this->get_parameter("yaw_step_deg", req.yaw_step_deg);
+        this->get_parameter("max_candidates_per_point", req.max_candidates_per_point);
+
+        // 执行规划
+        auto result = planner_core_.plan(req);
+
+        if (!result.success) {
+            last_error_ = result.error_msg;
+            return false;
+        }
+
+        // 发布路径
+        geometry_msgs::msg::PoseArray path_msg;
+        path_msg.header.stamp = this->now();
+        path_msg.header.frame_id = "map";
+
+        for (const auto& wp : result.waypoints) {
+            path_msg.poses.push_back(wp.agv_pose);
+        }
+
+        path_pub_->publish(path_msg);
+
+        RCLCPP_INFO(this->get_logger(),
+                    "Published path with %zu waypoints, total distance: %.2fm",
+                    path_msg.poses.size(), result.total_distance);
+
+        return true;
+    }
+
+    PlannerCore planner_core_;
+
+    rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr detection_points_sub_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr agv_pose_sub_;
+    rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr path_pub_;
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr plan_srv_;
+
+    std::vector<geometry_msgs::msg::Pose> detection_points_;
+    geometry_msgs::msg::Pose current_agv_pose_;
+    bool has_detection_points_ = false;
+    bool has_agv_pose_ = false;
+    std::string last_error_;
 };
 
 }  // namespace path_planner

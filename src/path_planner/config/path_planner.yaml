@@ -1,0 +1,20 @@
+/**:
+  ros__parameters:
+    # 相机工作距离约束（米）
+    camera_working_dist: 0.3          # 相机到工件表面的最优距离
+    camera_dist_tolerance: 0.05       # 距离容差 ±5cm
+
+    # 机械臂可达范围（米）
+    arm_reach_min: 0.2                # 最近可达（避免奇异点）
+    arm_reach_max: 0.8                # 最远可达
+
+    # AGV 站位采样参数
+    candidate_radius: 0.6             # 采样圆半径（米）
+    yaw_step_deg: 15.0                # 角度采样步长（度）
+    max_candidates_per_point: 5       # 每检测点保留的最大候选数
+
+    # 机械臂 base 相对于 AGV base 的偏移（米）
+    # 用于坐标变换：AGV位姿 -> 机械臂base位姿
+    arm_base_offset_x: 0.0
+    arm_base_offset_y: 0.0
+    arm_base_offset_z: 0.0
