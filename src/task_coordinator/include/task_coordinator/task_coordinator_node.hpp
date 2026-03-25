@@ -11,6 +11,8 @@
 #include <inspection_interface/msg/agv_status.hpp>
 #include <inspection_interface/msg/arm_status.hpp>
 #include <inspection_interface/msg/system_state.hpp>
+#include <inspection_interface/msg/inspection_path.hpp>
+#include <inspection_interface/msg/inspection_waypoint.hpp>
 #include <inspection_interface/srv/start_inspection.hpp>
 #include <inspection_interface/srv/stop_inspection.hpp>
 #include <inspection_interface/srv/pause_inspection.hpp>
@@ -80,6 +82,9 @@ private:
     std::vector<geometry_msgs::msg::Pose> _waypoints;
     std::string _waypoints_frame_id{"map"};
 
+    // 完整路径信息（包含机械臂关节角）
+    std::vector<inspection_interface::msg::InspectionWaypoint> _inspection_waypoints;
+
     // 位姿检测相关
     geometry_msgs::msg::Pose _detected_workpiece_pose;  // 检测到的工件位姿
     bool _has_detected_pose{false};                     // 是否收到位姿
@@ -105,8 +110,10 @@ private:
 
     rclcpp::Subscription<inspection_interface::msg::AgvStatus>::SharedPtr _agv_status_sub;
     rclcpp::Subscription<inspection_interface::msg::ArmStatus>::SharedPtr _arm_status_sub;
-    // _waypoints_sub：接收 path_planner 规划结果（PoseArray 形式的站位序列）
+    // _waypoints_sub：接收 path_planner 规划结果（PoseArray 形式的站位序列，用于可视化）
     rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr _waypoints_sub;
+    // _path_detail_sub：接收 path_planner 完整规划结果（包含 joint_angles）
+    rclcpp::Subscription<inspection_interface::msg::InspectionPath>::SharedPtr _path_detail_sub;
     // _detected_pose_sub：接收 pose_detector 检测到的工件位姿
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr _detected_pose_sub;
 

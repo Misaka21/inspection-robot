@@ -60,7 +60,15 @@ TaskCoordinatorNode::TaskCoordinatorNode(const rclcpp::NodeOptions& options)
             _waypoints = msg->poses;
             _total_waypoints = static_cast<int>(_waypoints.size());
             _waypoints_frame_id = msg->header.frame_id.empty() ? "map" : msg->header.frame_id;
-            RCLCPP_INFO(this->get_logger(), "收到路径点，数量: %d frame_id=%s", _total_waypoints, _waypoints_frame_id.c_str());
+            RCLCPP_INFO(this->get_logger(), "收到路径点(PoseArray)，数量: %d frame_id=%s", _total_waypoints, _waypoints_frame_id.c_str());
+        });
+
+    // 订阅详细路径信息（包含机械臂关节角）
+    _path_detail_sub = this->create_subscription<inspection_interface::msg::InspectionPath>(
+        "planning/path_detail", 10,
+        [this](const inspection_interface::msg::InspectionPath::SharedPtr msg) {
+            _inspection_waypoints = msg->waypoints;
+            RCLCPP_INFO(this->get_logger(), "收到详细路径(InspectionPath)，waypoints: %zu", msg->waypoints.size());
         });
 
     // 订阅检测到的工件位姿
@@ -276,6 +284,26 @@ void TaskCoordinatorNode::execute_current_waypoint() {
             break;
         case 3:
             RCLCPP_INFO(this->get_logger(), "步骤3: 下发机械臂目标");
+            _arm_arrived = false;
+            if (_current_waypoint_index >= 0 &&
+                _current_waypoint_index < static_cast<int>(_inspection_waypoints.size())) {
+                const auto& wp = _inspection_waypoints[_current_waypoint_index];
+                if (!wp.joint_angles.empty()) {
+                    sensor_msgs::msg::JointState joint_goal;
+                    joint_goal.header.stamp = this->now();
+                    // 使用标准关节名称（应与 robot_description 一致）
+                    for (size_t i = 0; i < wp.joint_angles.size(); ++i) {
+                        joint_goal.name.push_back("joint_" + std::to_string(i + 1));
+                        joint_goal.position.push_back(wp.joint_angles[i]);
+                    }
+                    _arm_joint_pub->publish(joint_goal);
+                    RCLCPP_INFO(this->get_logger(), "下发关节角目标，%zu 个关节", wp.joint_angles.size());
+                } else {
+                    RCLCPP_WARN(this->get_logger(), "当前 waypoint 无关节角数据，跳过下发");
+                }
+            } else {
+                RCLCPP_WARN(this->get_logger(), "当前 waypoint 索引无效，跳过下发");
+            }
             _execution_step = 4;
             break;
         case 4:
@@ -340,6 +368,7 @@ void TaskCoordinatorNode::start_inspection(
     _last_step_done = false;
     _waypoints.clear();
     _waypoints_frame_id = "map";
+    _inspection_waypoints.clear();
 
     set_phase(SystemState::PHASE_LOCALIZING);
     res->success = true;

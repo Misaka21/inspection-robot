@@ -3,6 +3,9 @@
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <std_srvs/srv/trigger.hpp>
 
+#include <inspection_interface/msg/inspection_waypoint.hpp>
+#include <inspection_interface/msg/inspection_path.hpp>
+
 #include "path_planner/planner_core.hpp"
 
 namespace path_planner {
@@ -39,8 +42,10 @@ public:
                 has_agv_pose_ = true;
             });
 
-        // 发布规划结果
+        // 发布规划结果（PoseArray 用于可视化，InspectionPath 用于执行）
         path_pub_ = this->create_publisher<geometry_msgs::msg::PoseArray>("path", 10);
+        path_detail_pub_ = this->create_publisher<inspection_interface::msg::InspectionPath>(
+            "path_detail", 10);
 
         // 创建服务
         plan_srv_ = this->create_service<std_srvs::srv::Trigger>(
@@ -95,16 +100,35 @@ private:
             return false;
         }
 
-        // 发布路径
+        // 发布路径（PoseArray 用于可视化）
         geometry_msgs::msg::PoseArray path_msg;
         path_msg.header.stamp = this->now();
         path_msg.header.frame_id = "map";
 
+        // 发布详细路径（InspectionPath 用于执行）
+        inspection_interface::msg::InspectionPath path_detail_msg;
+        path_detail_msg.header.stamp = this->now();
+        path_detail_msg.header.frame_id = "map";
+        path_detail_msg.success = true;
+        path_detail_msg.total_distance = result.total_distance;
+
         for (const auto& wp : result.waypoints) {
+            // PoseArray
             path_msg.poses.push_back(wp.agv_pose);
+
+            // InspectionPath
+            inspection_interface::msg::InspectionWaypoint waypoint_msg;
+            waypoint_msg.header.stamp = this->now();
+            waypoint_msg.header.frame_id = "map";
+            waypoint_msg.agv_pose = wp.agv_pose;
+            waypoint_msg.joint_angles = wp.joint_angles;
+            waypoint_msg.detection_point_id = wp.detection_point_id;
+            waypoint_msg.manipulability = wp.manipulability;
+            path_detail_msg.waypoints.push_back(waypoint_msg);
         }
 
         path_pub_->publish(path_msg);
+        path_detail_pub_->publish(path_detail_msg);
 
         RCLCPP_INFO(this->get_logger(),
                     "Published path with %zu waypoints, total distance: %.2fm",
@@ -118,6 +142,7 @@ private:
     rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr detection_points_sub_;
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr agv_pose_sub_;
     rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr path_pub_;
+    rclcpp::Publisher<inspection_interface::msg::InspectionPath>::SharedPtr path_detail_pub_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr plan_srv_;
 
     std::vector<geometry_msgs::msg::Pose> detection_points_;

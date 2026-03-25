@@ -20,6 +20,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   # Messages
   "msg/InspectionTask.msg"
   "msg/InspectionResult.msg"
+  "msg/InspectionWaypoint.msg"
+  "msg/InspectionPath.msg"
   "msg/DefectInfo.msg"
   "msg/RobotPose.msg"
   "msg/AgvStatus.msg"
