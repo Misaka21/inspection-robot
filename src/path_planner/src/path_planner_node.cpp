@@ -57,17 +57,32 @@ public:
                 response->message = response->success ? "Planning successful" : last_error_;
             });
 
-        // 初始化 PlannerCore
-        if (!planner_core_.init(shared_from_this())) {
-            RCLCPP_FATAL(this->get_logger(), "Failed to initialize PlannerCore");
-            return;
-        }
+        // 延迟初始化 PlannerCore（构造函数中不能使用 shared_from_this）
+        init_timer_ = this->create_wall_timer(
+            std::chrono::milliseconds(100),
+            [this]() {
+                init_timer_->cancel();
+                if (!planner_core_.init(shared_from_this())) {
+                    RCLCPP_FATAL(this->get_logger(), "Failed to initialize PlannerCore");
+                    return;
+                }
+                is_initialized_ = true;
+                RCLCPP_INFO(this->get_logger(), "PlannerCore initialized");
+            });
 
         RCLCPP_INFO(this->get_logger(), "PathPlannerNode initialized");
     }
 
 private:
+    bool is_initialized_ = false;
+
     bool execute_planning() {
+        if (!is_initialized_) {
+            last_error_ = "PlannerCore not initialized yet";
+            RCLCPP_WARN(this->get_logger(), "%s", last_error_.c_str());
+            return false;
+        }
+
         if (!has_detection_points_) {
             last_error_ = "No detection points received";
             RCLCPP_ERROR(this->get_logger(), "%s", last_error_.c_str());
@@ -144,6 +159,7 @@ private:
     rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr path_pub_;
     rclcpp::Publisher<inspection_interface::msg::InspectionPath>::SharedPtr path_detail_pub_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr plan_srv_;
+    rclcpp::TimerBase::SharedPtr init_timer_;
 
     std::vector<geometry_msgs::msg::Pose> detection_points_;
     geometry_msgs::msg::Pose current_agv_pose_;
