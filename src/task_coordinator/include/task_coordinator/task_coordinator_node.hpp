@@ -79,7 +79,10 @@ private:
 
     std::vector<geometry_msgs::msg::Pose> _waypoints;
     std::string _waypoints_frame_id{"map"};
-    geometry_msgs::msg::PoseStamped _detected_pose;
+
+    // 位姿检测相关
+    geometry_msgs::msg::Pose _detected_workpiece_pose;  // 检测到的工件位姿
+    bool _has_detected_pose{false};                     // 是否收到位姿
 
     // 以下布尔标志是状态机的跨函数共享条件，统一放这里而非散落 if/else 里
     bool _pose_detected;       // pose_detector 已返回有效检测结果
@@ -104,8 +107,11 @@ private:
     rclcpp::Subscription<inspection_interface::msg::ArmStatus>::SharedPtr _arm_status_sub;
     // _waypoints_sub：接收 path_planner 规划结果（PoseArray 形式的站位序列）
     rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr _waypoints_sub;
+    // _detected_pose_sub：接收 pose_detector 检测到的工件位姿
+    rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr _detected_pose_sub;
 
-    // 以下 client 用于触发各算法模块的一次性计算：
+    // _detection_points_pub：发布检测点给 path_planner 用于规划
+    rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr _detection_points_pub;
     // _pose_detect_client：触发 pose_detector 做一次 6D 位姿估计
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr _pose_detect_client;
     // _plan_client：触发 path_planner 用当前位姿做一次路径规划

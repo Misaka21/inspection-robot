@@ -63,12 +63,26 @@ TaskCoordinatorNode::TaskCoordinatorNode(const rclcpp::NodeOptions& options)
             RCLCPP_INFO(this->get_logger(), "收到路径点，数量: %d frame_id=%s", _total_waypoints, _waypoints_frame_id.c_str());
         });
 
+    // 订阅检测到的工件位姿
+    _detected_pose_sub = this->create_subscription<geometry_msgs::msg::PoseStamped>(
+        "perception/detected_pose", 10,
+        [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
+            _detected_workpiece_pose = msg->pose;
+            _has_detected_pose = true;
+            RCLCPP_INFO(this->get_logger(), "收到工件位姿: [%.3f, %.3f, %.3f]",
+                        msg->pose.position.x, msg->pose.position.y, msg->pose.position.z);
+        });
+
     _pose_detect_client = this->create_client<std_srvs::srv::Trigger>(
         "perception/detect");
     _plan_client = this->create_client<std_srvs::srv::Trigger>(
         "planning/optimize");
     _defect_detect_client = this->create_client<std_srvs::srv::Trigger>(
         "perception/detect_defect");
+
+    // 发布检测点给 path_planner
+    _detection_points_pub = this->create_publisher<geometry_msgs::msg::PoseArray>(
+        "planning/detection_points", 10);
 
     _start_srv = this->create_service<inspection_interface::srv::StartInspection>(
         "start",
@@ -175,6 +189,23 @@ void TaskCoordinatorNode::handle_localizing() {
 void TaskCoordinatorNode::handle_planning() {
     if (!_planning_triggered) {
         RCLCPP_INFO(this->get_logger(), "触发路径规划...");
+
+        // 先发布检测点给 path_planner
+        if (_has_detected_pose) {
+            geometry_msgs::msg::PoseArray detection_points;
+            detection_points.header.stamp = this->now();
+            detection_points.header.frame_id = "map";
+            detection_points.poses.push_back(_detected_workpiece_pose);
+            _detection_points_pub->publish(detection_points);
+            RCLCPP_INFO(this->get_logger(), "发布检测点给 path_planner");
+        } else {
+            RCLCPP_WARN(this->get_logger(), "无检测点位姿，将发布空检测点");
+            geometry_msgs::msg::PoseArray detection_points;
+            detection_points.header.stamp = this->now();
+            detection_points.header.frame_id = "map";
+            _detection_points_pub->publish(detection_points);
+        }
+
         if (_plan_client->wait_for_service(std::chrono::seconds(1))) {
             auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
             auto callback = [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
