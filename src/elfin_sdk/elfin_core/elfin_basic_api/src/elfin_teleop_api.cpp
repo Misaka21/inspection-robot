@@ -99,7 +99,7 @@ void ElfinTeleopAPI::setEndFrames(std::string end_link)
 
 void ElfinTeleopAPI::teleopJointCmdNoLimitCB(const std_msgs::msg::Int64::SharedPtr msg)
 {
-    if(msg->data==0 || abs(msg->data)>goal_.trajectory.joint_names.size())
+    if(msg->data==0 || static_cast<size_t>(abs(msg->data))>goal_.trajectory.joint_names.size())
         return;
     int joint_num=abs(msg->data);
     int symbol;
@@ -343,7 +343,7 @@ bool ElfinTeleopAPI::cartTeleop_cb(const std::shared_ptr<elfin_robot_msgs::srv::
         ik_have_result=kinematic_state.setFromIK(joint_model_group, affine_current_pose, default_tip_link_);
         if(ik_have_result)
         {
-            if(goal_.trajectory.points.size()!=i)
+            if(goal_.trajectory.points.size()!=static_cast<size_t>(i))
                 break;
             point_tmp.positions.resize(goal_.trajectory.joint_names.size());
             double biggest_shift=0;
@@ -397,7 +397,7 @@ bool ElfinTeleopAPI::cartTeleop_cb(const std::shared_ptr<elfin_robot_msgs::srv::
 
 }
 
-bool ElfinTeleopAPI::homeTeleop_cb(const std::shared_ptr<std_srvs::srv::SetBool::Request> req, const std::shared_ptr<std_srvs::srv::SetBool::Response> resp)
+bool ElfinTeleopAPI::homeTeleop_cb(const std::shared_ptr<std_srvs::srv::SetBool::Request> /*req*/, const std::shared_ptr<std_srvs::srv::SetBool::Response> resp)
 {
     moveit::core::RobotStatePtr current_state=group_->getCurrentState();
     std::vector<double> position_current=group_->getCurrentJointValues();
@@ -505,7 +505,7 @@ bool ElfinTeleopAPI::homeTeleop_cb(const std::shared_ptr<std_srvs::srv::SetBool:
 
 }
 
-bool ElfinTeleopAPI::teleopStop_cb(const std::shared_ptr<std_srvs::srv::SetBool::Request> req, const std::shared_ptr<std_srvs::srv::SetBool::Response> resp)
+bool ElfinTeleopAPI::teleopStop_cb(const std::shared_ptr<std_srvs::srv::SetBool::Request> /*req*/, const std::shared_ptr<std_srvs::srv::SetBool::Response> resp)
 {
     goal_.trajectory.points.clear();
     action_client_->async_send_goal(goal_);

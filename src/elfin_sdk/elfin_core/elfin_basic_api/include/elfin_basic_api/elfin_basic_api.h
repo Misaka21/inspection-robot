@@ -122,6 +122,8 @@ private:
     std::unique_ptr<tf2_ros::Buffer> tfBuffer;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_{nullptr};
 
+    rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr _param_callback_handle;
+
 };
 
 }

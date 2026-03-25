@@ -218,14 +218,14 @@ void ElfinMotionAPI::cartPathGoalCB(const geometry_msgs::msg::PoseArray::SharedP
     }
 }
 
-bool ElfinMotionAPI::getRefLink_cb(const std::shared_ptr<std_srvs::srv::SetBool::Request> req, const std::shared_ptr<std_srvs::srv::SetBool::Response> resp)
+bool ElfinMotionAPI::getRefLink_cb(const std::shared_ptr<std_srvs::srv::SetBool::Request> /*req*/, const std::shared_ptr<std_srvs::srv::SetBool::Response> resp)
 {
     resp->success=true;
     resp->message=reference_link_;
     return true;
 }
 
-bool ElfinMotionAPI::getEndLink_cb(const std::shared_ptr<std_srvs::srv::SetBool::Request> req, const std::shared_ptr<std_srvs::srv::SetBool::Response> resp)
+bool ElfinMotionAPI::getEndLink_cb(const std::shared_ptr<std_srvs::srv::SetBool::Request> /*req*/, const std::shared_ptr<std_srvs::srv::SetBool::Response> resp)
 {
     resp->success=true;
     resp->message=end_link_;

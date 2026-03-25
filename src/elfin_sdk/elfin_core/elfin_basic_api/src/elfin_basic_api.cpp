@@ -42,13 +42,13 @@ Created on Mon Dec 15 10:58:42 2017
 namespace elfin_basic_api {
 
 ElfinBasicAPI::ElfinBasicAPI(const rclcpp::Node::SharedPtr& node,moveit::planning_interface::MoveGroupInterfacePtr& group, std::string action_name, planning_scene_monitor::PlanningSceneMonitorPtr& planning_scene_monitor):
-    local_nh_(node), group_(group), planning_scene_monitor_(planning_scene_monitor)
+    group_(group), planning_scene_monitor_(planning_scene_monitor), local_nh_(node)
 {   
     
     teleop_api_=new ElfinTeleopAPI(local_nh_,group, action_name, planning_scene_monitor);
     motion_api_=new ElfinMotionAPI(local_nh_,group, planning_scene_monitor);
     auto  callback_group_service_ = local_nh_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-    local_nh_->add_on_set_parameters_callback(std::bind(&ElfinBasicAPI::dynamicReconfigureCallback, this, std::placeholders::_1));
+    _param_callback_handle = local_nh_->add_on_set_parameters_callback(std::bind(&ElfinBasicAPI::dynamicReconfigureCallback, this, std::placeholders::_1));
     set_ref_link_server_=local_nh_->create_service<elfin_robot_msgs::srv::SetString>("set_reference_link", std::bind(&ElfinBasicAPI::setRefLink_cb,this,std::placeholders::_1,std::placeholders::_2));
     set_end_link_server_=local_nh_->create_service<elfin_robot_msgs::srv::SetString>("set_end_link", std::bind(&ElfinBasicAPI::setEndLink_cb,this,std::placeholders::_1,std::placeholders::_2));
     enable_robot_server_=local_nh_->create_service<std_srvs::srv::SetBool>("/elfin_basic_api/enable_robot", std::bind(&ElfinBasicAPI::enableRobot_cb, this, std::placeholders::_1,std::placeholders::_2));
