@@ -273,6 +273,8 @@ void TaskCoordinatorNode::execute_current_waypoint() {
             } else {
                 RCLCPP_WARN(this->get_logger(), "当前 waypoint pose 不可用，跳过下发");
             }
+            _step_start_time = this->now();
+            _current_step_name = "AGV移动";
             _execution_step = 2;
             break;
         case 2:
@@ -280,6 +282,9 @@ void TaskCoordinatorNode::execute_current_waypoint() {
                 RCLCPP_INFO(this->get_logger(), "AGV 已到位");
                 _execution_step = 3;
                 _agv_arrived = false;
+            } else if (check_timeout("AGV移动", _agv_timeout_sec)) {
+                RCLCPP_ERROR(this->get_logger(), "AGV 移动超时");
+                set_phase(SystemState::PHASE_FAILED);
             }
             break;
         case 3:
@@ -304,6 +309,8 @@ void TaskCoordinatorNode::execute_current_waypoint() {
             } else {
                 RCLCPP_WARN(this->get_logger(), "当前 waypoint 索引无效，跳过下发");
             }
+            _step_start_time = this->now();
+            _current_step_name = "机械臂移动";
             _execution_step = 4;
             break;
         case 4:
@@ -311,6 +318,9 @@ void TaskCoordinatorNode::execute_current_waypoint() {
                 RCLCPP_INFO(this->get_logger(), "机械臂已到位");
                 _execution_step = 5;
                 _arm_arrived = false;
+            } else if (check_timeout("机械臂移动", _arm_timeout_sec)) {
+                RCLCPP_ERROR(this->get_logger(), "机械臂移动超时");
+                set_phase(SystemState::PHASE_FAILED);
             }
             break;
         case 5:
@@ -328,6 +338,8 @@ void TaskCoordinatorNode::execute_current_waypoint() {
                 };
                 _defect_detect_client->async_send_request(req, callback);
             }
+            _step_start_time = this->now();
+            _current_step_name = "缺陷检测";
             _execution_step = 6;
             break;
         case 6:
@@ -336,6 +348,9 @@ void TaskCoordinatorNode::execute_current_waypoint() {
                 _current_waypoint_index++;
                 _detection_done = false;
                 _execution_step = 1;
+            } else if (check_timeout("缺陷检测", _detection_timeout_sec)) {
+                RCLCPP_ERROR(this->get_logger(), "缺陷检测超时");
+                set_phase(SystemState::PHASE_FAILED);
             }
             break;
     }
@@ -496,18 +511,31 @@ std::string TaskCoordinatorNode::get_current_action_string() {
             return "规划检测路径";
         case SystemState::PHASE_EXECUTING:
             return "执行检测: " + std::to_string(_current_waypoint_index + 1) +
-                   "/" + std::to_string(_total_waypoints);
+                   "/" + std::to_string(_total_waypoints) + " (" + _current_step_name + ")";
         case SystemState::PHASE_PAUSED:
             return "任务已暂停";
         case SystemState::PHASE_COMPLETED:
             return "检测完成";
         case SystemState::PHASE_FAILED:
-            return "检测失败";
+            return "检测失败: " + _error_message;
         case SystemState::PHASE_STOPPED:
             return "任务已停止";
         default:
             return "未知状态";
     }
+}
+
+// 检查是否超时，超时返回 true 并设置错误信息
+bool TaskCoordinatorNode::check_timeout(const std::string& step_name, double timeout_sec) {
+    if (timeout_sec <= 0.0) {
+        return false;  // 超时未启用
+    }
+    auto elapsed = (this->now() - _step_start_time).seconds();
+    if (elapsed > timeout_sec) {
+        _error_message = step_name + "超时(" + std::to_string(static_cast<int>(elapsed)) + "s)";
+        return true;
+    }
+    return false;
 }
 
 }  // namespace task_coordinator

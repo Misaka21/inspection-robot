@@ -58,6 +58,7 @@ private:
     float calculate_progress();
     void publish_state();
     std::string get_current_action_string();
+    bool check_timeout(const std::string& step_name, double timeout_sec);
 
     // 成员变量
     // _current_phase：当前状态机阶段，取值来自 SystemState 的 phase 常量
@@ -102,6 +103,11 @@ private:
     double _agv_timeout_sec;       // AGV 到位等待超时（秒）
     double _arm_timeout_sec;       // 机械臂到位等待超时（秒）
     double _detection_timeout_sec; // 缺陷检测完成等待超时（秒）
+
+    // 超时检查相关
+    rclcpp::Time _step_start_time;   // 当前步骤开始时间
+    std::string _current_step_name;  // 当前步骤名称（用于日志/错误信息）
+    std::string _error_message;      // 错误信息（超时或其他错误）
 
     rclcpp::Publisher<SystemState>::SharedPtr _state_pub;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr _agv_goal_pub;
