@@ -14,19 +14,20 @@
 - 执行与联锁（`task_coordinator`）
 - 硬件控制（drivers/controllers）
 
-## 2. Public ROS API（当前骨架）
+## 2. Public ROS API（当前实现）
 
 默认命名空间：`/inspection/planning`
 
-订阅（当前实现）：
-- `/inspection/perception/detected_pose` (`geometry_msgs/msg/PoseStamped`)
-- `/inspection/agv/current_pose` (`geometry_msgs/msg/PoseStamped`)
+订阅：
+- `detection_points` (`geometry_msgs/msg/PoseArray`)：检测点位姿（来自 task_coordinator）
+- `/inspection/agv/current_pose` (`geometry_msgs/msg/PoseStamped`)：AGV 当前位姿（作为规划起点）
 
 发布：
-- `path` (`geometry_msgs/msg/PoseArray`)：站位点序列（工程骨架）
+- `path` (`geometry_msgs/msg/PoseArray`)：AGV 站位点序列（用于可视化）
+- `path_detail` (`inspection_interface/msg/InspectionPath`)：完整路径（含关节角，用于执行）
 
 服务：
-- `optimize` (`std_srvs/srv/Trigger`)：触发规划（工程骨架）
+- `optimize` (`std_srvs/srv/Trigger`)：触发规划
 
 ## 3. 推荐内部架构（PlannerCore + Adapters）
 

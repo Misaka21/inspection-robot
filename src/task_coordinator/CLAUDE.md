@@ -27,15 +27,21 @@
 订阅：
 - `agv/status` (`inspection_interface/msg/AgvStatus`) -> `/inspection/agv/status`
 - `arm/status` (`inspection_interface/msg/ArmStatus`) -> `/inspection/arm/status`
-- `planning/path` (`geometry_msgs/msg/PoseArray`) -> `/inspection/planning/path`
+- `planning/path` (`geometry_msgs/msg/PoseArray`) -> `/inspection/planning/path`（可视化用）
+- `planning/path_detail` (`inspection_interface/msg/InspectionPath`) -> `/inspection/planning/path_detail`（执行用，含关节角）
+- `perception/detected_pose` (`geometry_msgs/msg/PoseStamped`) -> 来自 pose_detector
+- `perception/result` (`inspection_interface/msg/DefectInfo`) -> 来自 defect_detector（TODO: 待接入）
 
 服务：
 - `start` / `stop` / `pause` / `resume` / `get_status`（`inspection_interface/srv/*`）
 
-客户端（当前骨架）：
-- `perception/detect`（Trigger）
-- `planning/optimize`（Trigger）
-- `perception/detect_defect`（Trigger）
+客户端：
+- `perception/detect`（Trigger）-> 触发 pose_detector
+- `planning/optimize`（Trigger）-> 触发 path_planner
+- `perception/detect_defect`（Trigger）-> 触发 defect_detector
+
+发布（对内）：
+- `planning/detection_points` (`geometry_msgs/msg/PoseArray`) -> 发送检测点给 path_planner
 
 ## 3. 推荐内部架构（Core + ROS Adapter）
 
@@ -78,9 +84,9 @@ flowchart TB
 
 ### ⚠ 已知问题
 
-- **step 3 空操作**：`execute_current_waypoint()` step 3 只打日志，未实际发布 `arm_control/cart_goal` 或 `arm_control/joint_goal`，导致 step 4 等待 `_arm_arrived` 永不到达
-- **超时未启用**：`_agv_timeout_sec` / `_arm_timeout_sec` / `_detection_timeout_sec` 已声明但从未检查
-- **缺陷结果断流**：coordinator 只调 `detect_defect` Trigger 看 bool，不订阅 `defect_detector` 的结果 topic，缺陷详情丢失
+- [x] **step 3 空操作**：`execute_current_waypoint()` step 3 只打日志，未实际发布 `arm_control/joint_goal`（已修复，现通过 `planning/path_detail` 获取关节角并下发）
+- [ ] **超时未启用**：`_agv_timeout_sec` / `_arm_timeout_sec` / `_detection_timeout_sec` 已声明但从未检查
+- [ ] **缺陷结果断流**：coordinator 只调 `detect_defect` Trigger 看 bool，不订阅 `defect_detector` 的 result topic，缺陷详情丢失
 
 ## 5. 与 REST/WS API 对齐时的落点（后续）
 
