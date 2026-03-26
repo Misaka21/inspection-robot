@@ -161,8 +161,9 @@ private:
     }
     auto req = std::make_shared<std_srvs::srv::Trigger::Request>();
     auto future = enable_client_->async_send_request(req);
-    const auto rc = rclcpp::spin_until_future_complete(node_, future, std::chrono::seconds(5));
-    if (rc != rclcpp::FutureReturnCode::SUCCESS) {
+    // 使用 wait_for 而非 spin_until_future_complete，避免在已有 executor spin 时嵌套 spin
+    const auto wait_result = future.wait_for(std::chrono::seconds(5));
+    if (wait_result != std::future_status::ready) {
       last_error_ = "arm_driver enable service call timeout";
       return false;
     }
