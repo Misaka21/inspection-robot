@@ -85,7 +85,7 @@ flowchart TB
 ### ⚠ 已知问题
 
 - [x] **step 3 空操作**：`execute_current_waypoint()` step 3 只打日志，未实际发布 `arm_control/joint_goal`（已修复，现通过 `planning/path_detail` 获取关节角并下发）
-- [ ] **超时未启用**：`_agv_timeout_sec` / `_arm_timeout_sec` / `_detection_timeout_sec` 已声明但从未检查
+- [x] **超时未启用**：`_agv_timeout_sec` / `_arm_timeout_sec` / `_detection_timeout_sec` 已声明但从未检查（已修复，超时机制已启用）
 - [ ] **缺陷结果断流**：coordinator 只调 `detect_defect` Trigger 看 bool，不订阅 `defect_detector` 的 result topic，缺陷详情丢失
 
 ## 5. 与 REST/WS API 对齐时的落点（后续）

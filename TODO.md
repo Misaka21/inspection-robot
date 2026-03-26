@@ -18,15 +18,17 @@
 - [x] 实现 `POST /targets`：接收并存储检测点位到 `GatewayRuntime`
 - [x] 实现 `POST /plans`：网关侧弧形路径生成（临时方案，未调用 ROS2 path_planner）
 - [x] 实现 `GET /plans/{plan_id}`：从缓存查询已规划路径
+- [x] `task_coordinator` 补齐 step 3 机械臂目标下发（已修复：通过 `path_detail` 获取关节角并发布 `arm_control/joint_goal`）
+- [x] `task_coordinator` 启用超时机制（已修复：`_agv_timeout_sec` / `_arm_timeout_sec` / `_detection_timeout_sec` 已生效）
 - [ ] `agv_driver` 实现 `get_nav_map` service server（优先返回 map_id/resolution/origin/thumbnail；底图可渐进增强）
-- [ ] `task_coordinator` 补齐 step 3 机械臂目标下发：当前 step 3 只打日志不发布，导致状态机卡死在 step 4
-- [ ] `task_coordinator` 启用超时机制：`_agv_timeout_sec` / `_arm_timeout_sec` / `_detection_timeout_sec` 已声明但从未使用
+  - 仿真端 `fake_agv` 已提供，真机端需封装厂商 TCP API（1300/4011/1513）
 - [ ] 取图链路最小化可回显：抓拍图落盘成可下载 `media_id` + 能被前端列表/回看（`GET /tasks/{id}/captures` + thumbnail）
 - [ ] TF/标定口径统一并可验证：`map→base_link→arm_base→tool0→hikvision_frame`（补充 `base_link→arm_base` 静态 TF）
 
 ## P1（规划与约束）
 
 - [ ] `path_planner` 从 Trigger 骨架升级为"输入 targets+capture_config 输出 InspectionPath"的 ROS2 srv（网关调用）
+  - 当前已发布 `path_detail`（含关节角），但 `POST /plans` 仍使用网关侧弧形生成临时方案
 - [ ] `POST /plans` 对接 ROS2 `path_planner`，替代当前网关侧弧形生成临时方案
 - [ ] 引入 `CaptureConfig.focus_distance_m` + `max_tilt_from_normal_deg` 的约束进入采样/IK 过滤（为后续逆解做铺垫）
 - [ ] `task_coordinator` 订阅 `defect_detector` 结果 topic（当前只调 Trigger 看 bool，缺陷详情丢失）

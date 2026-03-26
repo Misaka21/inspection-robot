@@ -17,7 +17,7 @@
 - 规划 `PlanInspection`：
   - `path_planner` ROS2 节点目前只有 `Trigger` 骨架，**不产出 `InspectionPath` 语义**
   - `inspection_gateway/routes/plans.py` 提供了网关侧弧形路径生成（临时方案，未调用 ROS2 `path_planner`）
-- 任务编排 `task_coordinator`：存在状态机骨架，**step 3 未实际下发机械臂目标（空操作）**，超时参数声明但未执行
+- 任务编排 `task_coordinator`：状态机骨架已实现，**step 3 机械臂目标下发已修复**（通过 `path_detail` 获取关节角并下发），**超时机制已启用**；仍缺失缺陷结果订阅
 - 取图链路：`hikvision_driver` 已有 `trigger_capture` + `image_raw`，但**没有媒体落盘/媒体 id/事件流**的实现
 
 ## 2. REST/WS 能力到机器人端模块映射（V1）
@@ -116,9 +116,9 @@ for waypoint in path:
 
 ## 5. 下一步落地顺序（建议）
 
-1. **`task_coordinator` step 3 补全机械臂下发** — 当前 step 3 空操作导致状态机永久卡死
-2. **`task_coordinator` 超时执行** — 参数已声明但未使用
-3. **`agv_driver` 实现 `get_nav_map`** — 封装厂商 TCP API
-4. **取图链路闭环** — 引入 `capture_manager`（或等效模块），抓拍落盘生成 `media_id`
-5. **`path_planner` 升级** — 从 Trigger 骨架升级为输入 targets + constraints 输出 InspectionPath 的 ROS2 srv
-6. **`POST /plans` 对接 ROS2** — 网关调用 `path_planner` 替代当前的网关侧弧形生成
+1. **`agv_driver` 实现 `get_nav_map`** — 封装厂商 TCP API（真机端缺失，仿真端已有）
+2. **取图链路闭环** — 引入 `capture_manager`（或等效模块），抓拍落盘生成 `media_id`
+3. **`path_planner` 升级** — 从 Trigger 骨架升级为输入 targets + constraints 输出 InspectionPath 的 ROS2 srv
+4. **`POST /plans` 对接 ROS2** — 网关调用 `path_planner` 替代当前的网关侧弧形生成
+5. **缺陷结果订阅** — `task_coordinator` 订阅 `defect_detector` 结果 topic，不再丢失缺陷详情
+6. **结构化事件流** — 新增 `/inspection/events` topic，网关映射到 WebSocket `inspection_event`

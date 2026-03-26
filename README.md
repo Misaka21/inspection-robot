@@ -4,14 +4,14 @@
 
 系统整体分工（建议先看 `docs/WORKSPACE_OVERVIEW.md`）：
 
-`inspection-hmi -> inspection_gateway(gRPC) -> ROS2(task_coordinator + drivers/controllers)`
+`inspection-site -> inspection_gateway(REST/WS) -> ROS2(task_coordinator + drivers/controllers)`
 
-上位机侧的“任务/计划/状态/事件/媒体资源”语义以 `inspection-api/proto/inspection_gateway.proto` 为准，本仓库负责把设备能力封装为 ROS 2 接口并在机器人端落地执行。
+上位机侧的”任务/计划/状态/事件/媒体资源”语义以 `inspection_gateway/api/models.py` 为准，本仓库负责把设备能力封装为 ROS 2 接口并在机器人端落地执行。
 
 ## 1. 当前阶段的约束（很重要）
 
 1. **API 优先级（从高到低）**
-   - `inspection-api/proto/inspection_gateway.proto`：上位机与机器人之间的对外契约（算法与上位机以此为准）
+   - `inspection_gateway/api/models.py`：上位机与机器人之间的对外契约（算法与上位机以此为准）
    - `inspection_interface`：机器人内部 ROS2 msg/srv（对齐网关语义）
    - 设备厂商协议（AGV TCP API/相机 SDK）：只允许在各自 `*_driver` 内部使用
 2. **坐标系约定**
@@ -76,7 +76,7 @@ bringup 是统一启动入口；单包 launch 默认读取包内 `config/*.yaml`
 | `defect_detector` | 缺陷检测（持续补齐中） |（待补齐 README） |
 | `task_coordinator` | 任务编排/状态机（持续补齐中） |（待补齐 README） |
 | `inspection_interface` | 机器人内部 msg/srv 定义（对齐网关语义） | `src/inspection_interface/msg`、`src/inspection_interface/srv` |
-| `inspection_gateway` | gRPC 网关：HMI <-> ROS2 桥接（持续补齐中） | `src/inspection_gateway/CLAUDE.md`、`docs/INSPECTION_GATEWAY_DESIGN.md` |
+| `inspection_gateway` | FastAPI REST/WS 网关：HMI <-> ROS2 桥接（持续补齐中） | `src/inspection_gateway/CLAUDE.md`、`docs/INSPECTION_GATEWAY_DESIGN.md` |
 | `inspection_bringup` | launch/配置统一入口 | `src/inspection_bringup/launch`、`src/inspection_bringup/config` |
 | `inspection_supervisor` | 系统监控（可选） |（待补齐 README） |
 
@@ -138,7 +138,7 @@ HMI 的导航视图通常需要“底图 + 分辨率 + 原点”，这些信息�
 
 - `/inspection/agv/get_nav_map`：`inspection_interface/srv/GetNavMap`
 
-对外接口（gRPC）侧的像素投影约定以 `inspection-api/proto/inspection_gateway.proto` 的 `NavMapInfo` 注释为准。
+对外接口（REST/WS）侧的像素投影约定以 `inspection_gateway/api/models.py` 的 `NavMapInfo` 为准。
 
 ## 7. TF 约定（最小集合）
 
@@ -159,7 +159,7 @@ HMI 的导航视图通常需要“底图 + 分辨率 + 原点”，这些信息�
 为了避免 README 和代码出现“字段不一致”，本仓库不在此处复制 `.msg/.srv` 内容。
 
 - 机器人内部接口：`src/inspection_interface/msg`、`src/inspection_interface/srv`
-- 对外契约：`inspection-api/proto/inspection_gateway.proto`（以该仓库为准）
+- 对外契约：`src/inspection_gateway/inspection_gateway/api/models.py`（以该文件为准）
 
 ## 9. 测试与联调建议（按工程阶段）
 
