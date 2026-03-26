@@ -285,6 +285,7 @@ void TaskCoordinatorNode::execute_current_waypoint() {
             } else if (check_timeout("AGV移动", _agv_timeout_sec)) {
                 RCLCPP_ERROR(this->get_logger(), "AGV 移动超时");
                 set_phase(SystemState::PHASE_FAILED);
+                return;
             }
             break;
         case 3:
@@ -321,6 +322,7 @@ void TaskCoordinatorNode::execute_current_waypoint() {
             } else if (check_timeout("机械臂移动", _arm_timeout_sec)) {
                 RCLCPP_ERROR(this->get_logger(), "机械臂移动超时");
                 set_phase(SystemState::PHASE_FAILED);
+                return;
             }
             break;
         case 5:
@@ -351,6 +353,7 @@ void TaskCoordinatorNode::execute_current_waypoint() {
             } else if (check_timeout("缺陷检测", _detection_timeout_sec)) {
                 RCLCPP_ERROR(this->get_logger(), "缺陷检测超时");
                 set_phase(SystemState::PHASE_FAILED);
+                return;
             }
             break;
     }
