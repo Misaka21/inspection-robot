@@ -16,7 +16,9 @@ TaskCoordinatorNode::TaskCoordinatorNode(const rclcpp::NodeOptions& options)
       _arm_arrived(false),
       _detection_done(false),
       _localizing_triggered(false),
-      _planning_triggered(false) {
+      _planning_triggered(false),
+      _step_start_time(this->now()),
+      _current_step_name("") {
     RCLCPP_INFO(this->get_logger(), "Starting Task Coordinator Node");
 
     this->declare_parameter("agv_timeout_sec", 30.0);
@@ -250,12 +252,6 @@ void TaskCoordinatorNode::handle_executing() {
 
 void TaskCoordinatorNode::execute_current_waypoint() {
     switch (_execution_step) {
-        case 0:
-            if (_last_step_done) {
-                _execution_step = 1;
-                _last_step_done = false;
-            }
-            break;
         case 1:
             RCLCPP_INFO(
                 this->get_logger(),
