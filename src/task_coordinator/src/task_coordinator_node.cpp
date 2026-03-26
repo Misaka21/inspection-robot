@@ -491,6 +491,9 @@ void TaskCoordinatorNode::publish_state() {
     state.phase = _current_phase;
     state.progress_percent = calculate_progress();
     state.current_action = get_current_action_string();
+    if (_current_phase == SystemState::PHASE_FAILED) {
+        state.error_message = _error_message;
+    }
     if (_has_agv_status) {
         state.agv = _last_agv_status;
     }
