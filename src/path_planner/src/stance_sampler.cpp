@@ -92,7 +92,8 @@ std::vector<StanceSampler::Stance> StanceSampler::sample_stances(
     const geometry_msgs::msg::Pose& workpiece_pose,
     double camera_working_dist,
     double candidate_radius,
-    double yaw_step_deg) {
+    double yaw_step_deg,
+    double agv_z) {
 
     std::vector<Stance> stances;
 
@@ -121,11 +122,10 @@ std::vector<StanceSampler::Stance> StanceSampler::sample_stances(
         Stance stance;
 
         // AGV位置：以工件为中心，candidate_radius为半径的圆上
-        // 注意：这里假设工件在地面投影为中心，AGV在水平面上移动
-        // 如果工件有高度，AGV仍在地面（z=0或当前高度）
+        // 使用传入的 agv_z 而非硬编码 0.0
         stance.agv_pose.position.x = workpiece_pose.position.x + candidate_radius * std::cos(yaw);
         stance.agv_pose.position.y = workpiece_pose.position.y + candidate_radius * std::sin(yaw);
-        stance.agv_pose.position.z = 0.0;  // 假设AGV在地面
+        stance.agv_pose.position.z = agv_z;
 
         // AGV朝向：朝向工件中心
         double agv_yaw = yaw + M_PI;  // 朝向圆心

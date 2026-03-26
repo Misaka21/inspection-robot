@@ -27,13 +27,15 @@ public:
      * @param camera_working_dist 相机到工件表面的最优距离（米）
      * @param candidate_radius AGV采样圆半径（米）
      * @param yaw_step_deg 采样角度步长（度）
+     * @param agv_z AGV的z坐标（默认为0）
      * @return std::vector<Stance> 候选站位列表
      */
     std::vector<Stance> sample_stances(
         const geometry_msgs::msg::Pose& workpiece_pose,
         double camera_working_dist,
         double candidate_radius,
-        double yaw_step_deg);
+        double yaw_step_deg,
+        double agv_z = 0.0);
 
 private:
     /**

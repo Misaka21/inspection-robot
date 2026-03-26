@@ -26,12 +26,13 @@ std::vector<PlannerCore::Waypoint> PlannerCore::generate_candidates_for_point(
 
     std::vector<Waypoint> candidates;
 
-    // 1. 采样AGV站位
+    // 1. 采样AGV站位（使用当前AGV的z坐标）
     auto stances = stance_sampler_.sample_stances(
         workpiece_pose,
         req.camera_working_dist,
         req.candidate_radius,
-        req.yaw_step_deg);
+        req.yaw_step_deg,
+        req.current_agv_pose.position.z);
 
     RCLCPP_DEBUG(node_->get_logger(),
                  "Point %d: sampled %zu stances",
@@ -40,7 +41,7 @@ std::vector<PlannerCore::Waypoint> PlannerCore::generate_candidates_for_point(
     // 2. 对每个站位做IK检查
     for (const auto& stance : stances) {
         // 快速距离检查（在IK之前过滤明显不可达的）
-        double dx = stance.tcp_pose.position.x - stance.agv_pose.position.x - ik_adapter_.get_joint_names().empty() ? 0 : 0;
+        double dx = stance.tcp_pose.position.x - stance.agv_pose.position.x;
         double dy = stance.tcp_pose.position.y - stance.agv_pose.position.y;
         double dz = stance.tcp_pose.position.z - stance.agv_pose.position.z;
         double tcp_dist = std::sqrt(dx*dx + dy*dy + dz*dz);
