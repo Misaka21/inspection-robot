@@ -1,7 +1,7 @@
 /**:
   ros__parameters:
     # Network interface connected to EtherCAT chain.
-    elfin_ethernet_name: "eth0"
+    elfin_ethernet_name: "lan1"
 
     # Publish rates.
     state_publish_rate_hz: 50.0
