@@ -1,7 +1,7 @@
 agv_driver_node:
   ros__parameters:
     # AGV 控制器 IP 地址
-    agv_ip: "127.0.0.1"
+    agv_ip: "192.168.192.5"
 
     # TCP 协议版本号（通常为 1）
     protocol_version: 1
