@@ -1,4 +1,4 @@
-agv_driver_node:
+/inspection/agv/agv_driver_node:
   ros__parameters:
     # AGV 控制器 IP 地址
     agv_ip: "192.168.192.5"
@@ -31,7 +31,7 @@ agv_driver_node:
     enable_bootstrap: true
 
     # 是否启用控制权抢占流程（4005/4006/1060）
-    enable_control_lock: false
+    enable_control_lock: true
 
     # 抢占控制权时使用的昵称（nick_name）
     control_nick_name: "inspection_agv_driver"
