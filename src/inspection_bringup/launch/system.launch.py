@@ -9,7 +9,9 @@ import os
 
 def generate_launch_description():
     """启动完整的检测系统"""
-    
+
+    bringup_config = os.path.join(get_package_share_directory('inspection_bringup'), 'config')
+
     # 驱动层
     drivers_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -17,7 +19,7 @@ def generate_launch_description():
             '/drivers.launch.py'
         ])
     )
-    
+
     # AGV / Arm
     agv_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -25,6 +27,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             'namespace': '/inspection/agv',
+            'params_file': os.path.join(bringup_config, 'agv_driver.yaml'),
         }.items(),
     )
     arm_driver_launch = IncludeLaunchDescription(
@@ -33,6 +36,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             'namespace': '/inspection/arm',
+            'params_file': os.path.join(bringup_config, 'arm_driver.yaml'),
         }.items(),
     )
     arm_controller_launch = IncludeLaunchDescription(
@@ -41,6 +45,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             'namespace': '/inspection/arm_control',
+            'params_file': os.path.join(bringup_config, 'arm_controller.yaml'),
         }.items(),
     )
 
@@ -59,6 +64,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             'namespace': '/inspection/planning',
+            'params_file': os.path.join(bringup_config, 'path_planner.yaml'),
         }.items(),
     )
     defect_detector_launch = IncludeLaunchDescription(

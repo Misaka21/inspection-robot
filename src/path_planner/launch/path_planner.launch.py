@@ -49,7 +49,7 @@ def generate_launch_description():
     params_file_arg = DeclareLaunchArgument(
         "params_file",
         default_value=os.path.join(
-            get_package_share_directory("path_planner"),
+            get_package_share_directory("inspection_bringup"),
             "config",
             "path_planner.yaml",
         ),

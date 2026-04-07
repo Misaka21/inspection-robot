@@ -9,12 +9,10 @@ from ament_index_python.packages import get_package_share_directory
 
 import os
 
+bringup_config = os.path.join(get_package_share_directory('inspection_bringup'), 'config')
+
 # 参数文件路径
-node_params = os.path.join(
-    get_package_share_directory('inspection_bringup'),
-    'config',
-    'inspection.yaml'
-)
+node_params = os.path.join(bringup_config, 'inspection.yaml')
 
 
 def get_camera_container():
@@ -41,7 +39,7 @@ def get_camera_container():
     )
 
 def get_realsense_launch():
-    """启动 RealSense 驱动（使用系统包 + 本地配置）"""
+    """启动 RealSense 驱动（使用系统包 + bringup 配置）"""
     return IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
@@ -50,6 +48,9 @@ def get_realsense_launch():
                 'realsense.launch.py'
             )
         ),
+        launch_arguments={
+            'config_file': os.path.join(bringup_config, 'realsense.yaml'),
+        }.items(),
     )
 
 
