@@ -1,7 +1,7 @@
 /**:
   ros__parameters:
     # Network interface connected to EtherCAT chain.
-    elfin_ethernet_name: "lan1"
+    elfin_ethernet_name: "lan2"
 
     # Publish rates.
     state_publish_rate_hz: 50.0
@@ -38,5 +38,4 @@
     # Elfin5 reference values from vendor docs.
     axis_torque_factors: [2536.224, 2536.224, 5251.283, 5251.283, 15975.05, 15975.05]
 
-    # TODO: Replace with your robot's calibrated home-count values.
-    count_zeros: [1479495, 10118219, 2512119, 2713453, 1797481, 3784784]
+    count_zeros: [377739, 535339, 143670110, 143410465, 834833, 4968369]
