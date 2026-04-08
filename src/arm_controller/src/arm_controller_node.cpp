@@ -49,18 +49,21 @@ public:
   explicit ArmControllerNode(const rclcpp::Node::SharedPtr & node)
   : node_(node)
   {
-    planning_group_ = node_->declare_parameter<std::string>("planning_group", "elfin_arm");
-    planning_frame_ = node_->declare_parameter<std::string>("planning_frame", "world");
-    planning_time_sec_ = node_->declare_parameter<double>("planning_time", 5.0);
-    velocity_scaling_ = clamp01(node_->declare_parameter<double>("velocity_scaling", 0.5));
-    acceleration_scaling_ = clamp01(node_->declare_parameter<double>("acceleration_scaling", 0.5));
+    // automatically_declare_parameters_from_overrides(true) 可能已自动声明这些参数，
+    // 直接 declare_parameter 会抛 ParameterAlreadyDeclaredException。
+    // 用 param<T> 兼容两种场景。
+    planning_group_ = param<std::string>("planning_group", "elfin_arm");
+    planning_frame_ = param<std::string>("planning_frame", "world");
+    planning_time_sec_ = param<double>("planning_time", 5.0);
+    velocity_scaling_ = clamp01(param<double>("velocity_scaling", 0.5));
+    acceleration_scaling_ = clamp01(param<double>("acceleration_scaling", 0.5));
 
-    stream_trajectory_ = node_->declare_parameter<bool>("stream_trajectory", true);
-    arm_driver_joint_cmd_topic_ = node_->declare_parameter<std::string>(
+    stream_trajectory_ = param<bool>("stream_trajectory", true);
+    arm_driver_joint_cmd_topic_ = param<std::string>(
       "arm_driver_joint_cmd_topic", "/inspection/arm/joint_cmd");
 
-    auto_enable_driver_ = node_->declare_parameter<bool>("auto_enable_driver", false);
-    arm_driver_enable_service_ = node_->declare_parameter<std::string>(
+    auto_enable_driver_ = param<bool>("auto_enable_driver", false);
+    arm_driver_enable_service_ = param<std::string>(
       "arm_driver_enable_service", "/inspection/arm/enable");
 
     joint_cmd_pub_ = node_->create_publisher<sensor_msgs::msg::JointState>(arm_driver_joint_cmd_topic_, 10);
@@ -122,6 +125,15 @@ public:
   }
 
 private:
+  template <typename T>
+  T param(const std::string & name, const T & default_value)
+  {
+    if (node_->has_parameter(name)) {
+      return node_->get_parameter(name).get_value<T>();
+    }
+    return node_->declare_parameter<T>(name, default_value);
+  }
+
   void publish_status(const std::string & text)
   {
     std_msgs::msg::String msg;

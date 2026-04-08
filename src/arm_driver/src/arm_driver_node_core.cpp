@@ -25,8 +25,10 @@ std::vector<std::string> ArmDriverNode::default_command_joint_names()
     "elfin_joint6"};
 }
 
-ArmDriverNode::ArmDriverNode(const rclcpp::Node::SharedPtr & node)
-: node_(node)
+ArmDriverNode::ArmDriverNode(
+  const rclcpp::Node::SharedPtr & node,
+  const rclcpp::Node::SharedPtr & elfin_node)
+: node_(node), elfin_node_(elfin_node)
 {
   ethernet_name_ = node_->declare_parameter<std::string>("elfin_ethernet_name", "eth0");
   state_publish_rate_hz_ = node_->declare_parameter<double>("state_publish_rate_hz", 50.0);
@@ -51,8 +53,10 @@ ArmDriverNode::ArmDriverNode(const rclcpp::Node::SharedPtr & node)
 void ArmDriverNode::initialize_core()
 {
   manager_ = std::make_unique<elfin_ethercat_driver::EtherCatManager>(ethernet_name_);
+  // elfin_node_ 是独立的内部节点，避免厂商驱动的 service（如 clear_fault/SetBool）
+  // 与 arm_driver 的同名 service（clear_fault/Trigger）在同一节点上冲突
   core_driver_ = std::make_unique<elfin_ethercat_driver::ElfinEtherCATDriver>(
-    manager_.get(), "elfin", node_);
+    manager_.get(), "elfin", elfin_node_);
 
   initialize_axis_layout();
 

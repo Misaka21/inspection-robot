@@ -1,5 +1,6 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
@@ -38,7 +39,13 @@ def generate_launch_description():
         ),
         description="Path to ROS2 parameters file",
     )
+    rviz_arg = DeclareLaunchArgument(
+        "rviz",
+        default_value="true",
+        description="Launch RViz with MoveIt MotionPlanning plugin",
+    )
 
+    # ── Robot description ──
     xacro_file = os.path.join(
         get_package_share_directory("elfin_description"),
         "urdf",
@@ -55,6 +62,61 @@ def generate_launch_description():
 
     kinematics_yaml = load_yaml("elfin5_ros2_moveit2", "config/kinematics.yaml")
 
+    # ── OMPL planning pipeline (for move_group) ──
+    ompl_planning_yaml = load_yaml("elfin5_ros2_moveit2", "config/ompl_planning.yaml")
+    ompl_planning_pipeline_config = {
+        "move_group": {
+            "planning_plugin": "ompl_interface/OMPLPlanner",
+            "request_adapters": " ".join([
+                "default_planner_request_adapters/AddTimeOptimalParameterization",
+                "default_planner_request_adapters/FixWorkspaceBounds",
+                "default_planner_request_adapters/FixStartStateBounds",
+                "default_planner_request_adapters/FixStartStateCollision",
+                "default_planner_request_adapters/FixStartStatePathConstraints",
+            ]),
+            "start_state_max_bounds_error": 0.1,
+        }
+    }
+    ompl_planning_pipeline_config["move_group"].update(ompl_planning_yaml)
+
+    # ── Trajectory execution (planning-only mode, no ros2_control) ──
+    trajectory_execution = {
+        "moveit_manage_controllers": False,
+        "trajectory_execution.allowed_execution_duration_scaling": 1.2,
+        "trajectory_execution.allowed_goal_duration_margin": 0.5,
+        "trajectory_execution.allowed_start_tolerance": 0.01,
+    }
+
+    planning_scene_monitor_parameters = {
+        "publish_planning_scene": True,
+        "publish_geometry_updates": True,
+        "publish_state_updates": True,
+        "publish_transforms_updates": True,
+    }
+
+    # ── Nodes ──
+    move_group_node = Node(
+        package="moveit_ros_move_group",
+        executable="move_group",
+        output="screen",
+        parameters=[
+            robot_description,
+            robot_description_semantic,
+            kinematics_yaml,
+            ompl_planning_pipeline_config,
+            trajectory_execution,
+            planning_scene_monitor_parameters,
+        ],
+    )
+
+    robot_state_publisher_node = Node(
+        package="robot_state_publisher",
+        executable="robot_state_publisher",
+        name="arm_robot_state_publisher",
+        output="screen",
+        parameters=[robot_description],
+    )
+
     arm_controller_node = Node(
         package="arm_controller",
         executable="arm_controller_node",
@@ -69,18 +131,33 @@ def generate_launch_description():
         ],
     )
 
-    # Optional: publish TF tree from /joint_states + robot_description.
-    robot_state_publisher_node = Node(
-        package="robot_state_publisher",
-        executable="robot_state_publisher",
-        name="arm_robot_state_publisher",
-        output="screen",
-        parameters=[robot_description],
+    # ── RViz (optional) ──
+    rviz_config = os.path.join(
+        get_package_share_directory("elfin5_ros2_moveit2"),
+        "launch",
+        "elfin5_moveit2.rviz",
+    )
+    rviz_node = Node(
+        package="rviz2",
+        executable="rviz2",
+        name="rviz2",
+        output="log",
+        arguments=["-d", rviz_config],
+        parameters=[
+            robot_description,
+            robot_description_semantic,
+            ompl_planning_pipeline_config,
+            kinematics_yaml,
+        ],
+        condition=IfCondition(LaunchConfiguration("rviz")),
     )
 
     return LaunchDescription([
         namespace_arg,
         params_file_arg,
+        rviz_arg,
+        move_group_node,
         robot_state_publisher_node,
         arm_controller_node,
+        rviz_node,
     ])
