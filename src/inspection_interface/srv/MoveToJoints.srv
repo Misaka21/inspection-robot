@@ -1,0 +1,6 @@
+# Move to joint positions via MoveIt planning
+float64[] target_joints    # 6 joint angles in radians [j1..j6]
+float32 speed              # velocity scaling 0~1
+---
+bool success
+string message
