@@ -36,6 +36,10 @@ install(DIRECTORY launch
 install(DIRECTORY include
   DESTINATION share/${PROJECT_NAME})
 
+install(PROGRAMS scripts/demo_inspection.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME demo_inspection)
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)
