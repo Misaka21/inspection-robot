@@ -14,8 +14,8 @@
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped
-from sensor_msgs.msg import JointState
 from inspection_interface.msg import AgvStatus, ArmStatus
+from inspection_interface.srv import MoveToJoints
 from std_srvs.srv import Trigger
 import math
 import time
@@ -26,31 +26,29 @@ import time
 STATIONS = [
     {
         "name": "站点1",
-        "agv": [1.0, 0.0, 0.0],            # [x, y, yaw]
-        "arm_joints": [0.0, 0.0, 1.57, 0.0, 1.57, 0.0],  # 拍照位姿1
+        "agv": [-4, 0.0, 0.0],            # [x, y, yaw]
+        "arm_joints": [1.57, -0.523, 2.094, 0.0, 0.0, 0.0],  # 拍照位姿1
         "dwell": 3.0,                        # 停留秒数
     },
     {
         "name": "站点2",
-        "agv": [2.0, 1.0, 1.57],
-        "arm_joints": [0.5, -0.3, 1.2, 0.0, 1.0, 0.0],   # 拍照位姿2
+        "agv": [-5, 1.0, 1.57],
+        "arm_joints": [1.57, 0.0, 2.094, 0.0, 0.524, 0.0],   # 拍照位姿2
         "dwell": 3.0,
     },
     {
         "name": "站点3",
-        "agv": [0.0, 0.0, 0.0],            # 回到起点
-        "arm_joints": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],    # 收回零位
+        "agv": [-4, 1, 0.0],            # 回到起点
+        "arm_joints": [1.57, -0.523, 2.094, 0.0, 0.524, 0.0],    # 收回零位
         "dwell": 1.0,
     },
 ]
 
 # 机械臂收回零位（每个站点拍完照后收回，AGV 再走）
-ARM_HOME = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+ARM_HOME = [1.57, -0.523, 2.094, 0.0, 0.524, 0.0]
 
-JOINT_NAMES = [
-    "elfin_joint1", "elfin_joint2", "elfin_joint3",
-    "elfin_joint4", "elfin_joint5", "elfin_joint6",
-]
+# MoveIt 速度缩放因子 (0~1)，值越小越慢越平稳
+ARM_SPEED = 0.1
 
 
 class DemoNode(Node):
@@ -60,8 +58,6 @@ class DemoNode(Node):
         # Publishers
         self._agv_goal_pub = self.create_publisher(
             PoseStamped, "/inspection/agv/goal_pose", 10)
-        self._arm_joint_pub = self.create_publisher(
-            JointState, "/inspection/arm_control/joint_goal", 10)
 
         # Status
         self._agv_status = None
@@ -71,9 +67,11 @@ class DemoNode(Node):
         self.create_subscription(
             ArmStatus, "/inspection/arm/status", self._on_arm_status, 10)
 
-        # Arm enable client
+        # Service clients
         self._enable_client = self.create_client(
             Trigger, "/inspection/arm/enable")
+        self._move_joints_client = self.create_client(
+            MoveToJoints, "/inspection/arm_control/move_to_joints")
 
         self.get_logger().info("Demo inspection node started")
 
@@ -106,44 +104,70 @@ class DemoNode(Node):
         msg.pose.orientation.z = math.sin(yaw / 2.0)
         msg.pose.orientation.w = math.cos(yaw / 2.0)
         self._agv_goal_pub.publish(msg)
+        # 清掉旧 status，防止读到 goal 发出前的残留 arrived=True
+        self._agv_status = None
         self.get_logger().info(f"AGV goal: x={x:.2f}, y={y:.2f}, yaw={yaw:.2f}")
 
-    def send_arm_joints(self, positions):
-        """发送关节目标"""
-        msg = JointState()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.name = JOINT_NAMES
-        msg.position = [float(p) for p in positions]
-        self._arm_joint_pub.publish(msg)
+    def send_arm_joints(self, positions, speed=ARM_SPEED):
+        """通过 MoveToJoints service 发送关节目标（走 MoveIt 规划）"""
         self.get_logger().info(
-            f"Arm goal: [{', '.join(f'{p:.2f}' for p in positions)}]")
+            f"Arm goal: [{', '.join(f'{p:.2f}' for p in positions)}] speed={speed}")
+
+        if not self._move_joints_client.wait_for_service(timeout_sec=5.0):
+            self.get_logger().error("move_to_joints service not available")
+            return False
+
+        req = MoveToJoints.Request()
+        req.target_joints = [float(p) for p in positions]
+        req.speed = float(speed)
+
+        future = self._move_joints_client.call_async(req)
+        rclpy.spin_until_future_complete(self, future, timeout_sec=30.0)
+
+        result = future.result()
+        if result is None:
+            self.get_logger().error("move_to_joints service call timeout")
+            return False
+        if not result.success:
+            self.get_logger().error(f"move_to_joints failed: {result.message}")
+            return False
+
+        self.get_logger().info("Arm move completed")
+        return True
 
     def wait_agv_arrived(self, timeout=60.0):
         """等待 AGV 到达"""
         self.get_logger().info("Waiting for AGV to arrive...")
         start = time.time()
+        last_log_time = 0.0
         while rclpy.ok() and (time.time() - start) < timeout:
             rclpy.spin_once(self, timeout_sec=0.2)
             s = self._agv_status
             if s and s.connected and s.arrived and not s.moving:
                 self.get_logger().info("AGV arrived!")
                 return True
-        self.get_logger().warn("AGV arrival timeout")
-        return False
-
-    def wait_arm_arrived(self, timeout=15.0):
-        """等待机械臂到位"""
-        self.get_logger().info("Waiting for arm to arrive...")
-        # 先等一小段让机械臂开始动
-        time.sleep(0.5)
-        start = time.time()
-        while rclpy.ok() and (time.time() - start) < timeout:
-            rclpy.spin_once(self, timeout_sec=0.2)
-            s = self._arm_status
-            if s and s.arrived and not s.moving:
-                self.get_logger().info("Arm arrived!")
-                return True
-        self.get_logger().warn("Arm arrival timeout")
+            # 每 5 秒输出一次当前状态，方便排查
+            elapsed = time.time() - start
+            if elapsed - last_log_time >= 5.0:
+                last_log_time = elapsed
+                if s is None:
+                    self.get_logger().warn(
+                        f"  [{elapsed:.0f}s] no AgvStatus received yet")
+                else:
+                    self.get_logger().info(
+                        f"  [{elapsed:.0f}s] connected={s.connected} "
+                        f"arrived={s.arrived} moving={s.moving} "
+                        f"error={s.error_code}")
+        s = self._agv_status
+        if s is None:
+            self.get_logger().error(
+                "AGV arrival timeout: never received AgvStatus — "
+                "check agv_driver is running and topic remapping")
+        else:
+            self.get_logger().error(
+                f"AGV arrival timeout: connected={s.connected} "
+                f"arrived={s.arrived} moving={s.moving} "
+                f"error={s.error_code}")
         return False
 
     def run(self):
@@ -167,8 +191,6 @@ class DemoNode(Node):
             if i > 0:
                 self.get_logger().info("Arm -> home before moving AGV")
                 self.send_arm_joints(ARM_HOME)
-                self.wait_arm_arrived()
-                time.sleep(0.5)
 
             # 2. AGV 去站点
             x, y, yaw = station["agv"]
@@ -177,10 +199,8 @@ class DemoNode(Node):
                 self.get_logger().error("AGV failed, aborting")
                 break
 
-            # 3. 机械臂摆拍照位姿
+            # 3. 机械臂摆拍照位姿（通过 MoveIt 规划执行，阻塞直到完成）
             self.send_arm_joints(station["arm_joints"])
-            if not self.wait_arm_arrived():
-                self.get_logger().warn("Arm timeout, continuing anyway")
 
             # 4. 停留（模拟拍照）
             dwell = station.get("dwell", 3.0)
@@ -190,7 +210,6 @@ class DemoNode(Node):
         # 最后收回
         self.get_logger().info("\nFinal: arm -> home")
         self.send_arm_joints(ARM_HOME)
-        self.wait_arm_arrived()
 
         self.get_logger().info("=" * 40)
         self.get_logger().info("  Demo complete!")
