@@ -26,6 +26,44 @@ constexpr uint8_t PROTOCOL_SYNC = 0x5A;
 // 固定 16 字节协议头大小
 constexpr size_t PROTOCOL_HEADER_SIZE = 16U;
 
+// AGV 错误码 -> 可读描述，覆盖常见运行时错误
+// 完整列表见 docs/agv_api_required/04_recovery/API 错误码.md
+const char * ret_code_description(const int code)
+{
+  switch (code) {
+    case 40000: return "req_unavailable(请求不可用)";
+    case 40001: return "param_missing(参数缺失)";
+    case 40002: return "param_type_error(参数类型错误)";
+    case 40003: return "param_illegal(参数不合法)";
+    case 40004: return "mode_error(运行模式错误)";
+    case 40012: return "dispatching(调度系统控制中)";
+    case 40015: return "manual_charging(正在手动充电,不能运动)";
+    case 40016: return "emc_status(急停状态中)";
+    case 40020: return "locked(控制权被抢占)";
+    case 40051: return "map_not_exists(地图不存在)";
+    case 40052: return "load_map_error(加载地图错误)";
+    case 40100: return "req_timeout(请求执行超时)";
+    case 40101: return "req_forbidden(请求被禁止)";
+    case 40102: return "robot_busy(机器人繁忙)";
+    case 40199: return "robot_internal_error(内部错误)";
+    case 40400: return "src_require_error(获取控制权错误)";
+    case 40401: return "src_release_error(释放控制权错误)";
+    case 41000: return "init_status_error(初始化状态错误)";
+    case 41001: return "loadmap_status_error(地图载入状态错误,缺少里程/激光数据)";
+    case 41002: return "reloc_status_error(重定位状态错误)";
+    case 41003: return "reloc_no_robot_home(找不到重定位参考点)";
+    case 41004: return "confidence_too_low(置信度过低)";
+    case 41100: return "no_start_pos(找不到起点)";
+    case 41102: return "no_end_pos(找不到终点)";
+    case 41200: return "speed_illegal(速度值非法)";
+    case 60000: return "wrong_port(报文发错端口)";
+    case 60001: return "unknown_type(未知报文类型)";
+    case 60002: return "bad_json(数据区JSON解析失败)";
+    case 60003: return "version_mismatch(协议版本错误)";
+    default:    return nullptr;
+  }
+}
+
 // 日志截断辅助：防止超长 JSON 刷爆日志，只保留前 max_chars 个字符
 std::string trim_for_log(const std::string & input, const size_t max_chars)
 {
@@ -167,7 +205,10 @@ bool AgvTransport::request(
   const auto ret_code = json_get_int(body, "ret_code");
   if (ret_code.has_value() && ret_code.value() != 0) {
     if (error != nullptr) {
-      *error = "ret_code=" + std::to_string(ret_code.value()) +
+      const int code = ret_code.value();
+      const char * desc = ret_code_description(code);
+      *error = "ret_code=" + std::to_string(code) +
+        " " + (desc ? desc : "unknown") +
         ", cmd_type=" + std::to_string(cmd_type);
     }
     return false;

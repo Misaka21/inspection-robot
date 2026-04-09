@@ -205,15 +205,26 @@ bool AgvClient::query_reloc_status(int * reloc_status, std::string * error)
 // 向 AGV 发送导航目标（cmd 3051，freeGo 自由导航模式）
 // x/y 单位：米（地图坐标系），yaw 单位：弧度
 // AGV 收到后自动规划路径并导航到目标点
-bool AgvClient::send_goal(const double x, const double y, const double yaw, std::string * error)
+bool AgvClient::send_goal(
+  const double x, const double y, const double yaw,
+  const double max_speed, const double max_wspeed,
+  std::string * error)
 {
   std::string response;
-  const std::string payload =
+  std::string payload =
     "{\"freeGo\":{\"x\":" + std::to_string(x) +
     ",\"y\":" + std::to_string(y) +
     ",\"theta\":" + std::to_string(yaw) +
-    "},\"id\":\"SELF_POSITION\"}";
+    "},\"id\":\"SELF_POSITION\"";
 
+  if (max_speed > 0.0) {
+    payload += ",\"max_speed\":" + std::to_string(max_speed);
+  }
+  if (max_wspeed > 0.0) {
+    payload += ",\"max_wspeed\":" + std::to_string(max_wspeed);
+  }
+
+  payload += "}";
   return request(3051U, payload, &response, error);
 }
 
