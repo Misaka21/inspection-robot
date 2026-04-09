@@ -28,7 +28,8 @@
 
 `system.launch.py`：
 - include drivers
-- include agv_driver/arm_driver/arm_controller/pose_detector/path_planner/defect_detector/task_coordinator
+- include agv_driver/arm_driver/arm_controller/defect_detector/task_coordinator
+- task_coordinator 接收 `stations_file` 参数指向 `config/inspection_stations.yaml`
 - foxglove_bridge
 
 ## 4. 修改规则

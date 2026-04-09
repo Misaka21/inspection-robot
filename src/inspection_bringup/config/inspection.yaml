@@ -7,7 +7,7 @@
     retry_delay_sec: 1.0
     use_mfs_config: false
     mfs_config_path: ""
-    camera_info_url: "package://hikvision_driver/config/camera_info.yaml"
+    camera_info_url: "package://inspection_bringup/config/camera_info.yaml"
     frame_rate: 30.0
     exposure_time: 6000.0
     gain: 15.0

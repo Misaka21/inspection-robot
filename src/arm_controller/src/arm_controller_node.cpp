@@ -11,6 +11,7 @@
 
 #include "builtin_interfaces/msg/duration.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
+#include "inspection_interface/srv/move_to_joints.hpp"
 #include "inspection_interface/srv/move_to_pose.hpp"
 #include "moveit/move_group_interface/move_group_interface.h"
 #include "rclcpp/rclcpp.hpp"
@@ -49,18 +50,21 @@ public:
   explicit ArmControllerNode(const rclcpp::Node::SharedPtr & node)
   : node_(node)
   {
-    planning_group_ = node_->declare_parameter<std::string>("planning_group", "elfin_arm");
-    planning_frame_ = node_->declare_parameter<std::string>("planning_frame", "world");
-    planning_time_sec_ = node_->declare_parameter<double>("planning_time", 5.0);
-    velocity_scaling_ = clamp01(node_->declare_parameter<double>("velocity_scaling", 0.5));
-    acceleration_scaling_ = clamp01(node_->declare_parameter<double>("acceleration_scaling", 0.5));
+    // automatically_declare_parameters_from_overrides(true) 可能已自动声明这些参数，
+    // 直接 declare_parameter 会抛 ParameterAlreadyDeclaredException。
+    // 用 param<T> 兼容两种场景。
+    planning_group_ = param<std::string>("planning_group", "elfin_arm");
+    planning_frame_ = param<std::string>("planning_frame", "world");
+    planning_time_sec_ = param<double>("planning_time", 5.0);
+    velocity_scaling_ = clamp01(param<double>("velocity_scaling", 0.5));
+    acceleration_scaling_ = clamp01(param<double>("acceleration_scaling", 0.5));
 
-    stream_trajectory_ = node_->declare_parameter<bool>("stream_trajectory", true);
-    arm_driver_joint_cmd_topic_ = node_->declare_parameter<std::string>(
+    stream_trajectory_ = param<bool>("stream_trajectory", true);
+    arm_driver_joint_cmd_topic_ = param<std::string>(
       "arm_driver_joint_cmd_topic", "/inspection/arm/joint_cmd");
 
-    auto_enable_driver_ = node_->declare_parameter<bool>("auto_enable_driver", false);
-    arm_driver_enable_service_ = node_->declare_parameter<std::string>(
+    auto_enable_driver_ = param<bool>("auto_enable_driver", false);
+    arm_driver_enable_service_ = param<std::string>(
       "arm_driver_enable_service", "/inspection/arm/enable");
 
     joint_cmd_pub_ = node_->create_publisher<sensor_msgs::msg::JointState>(arm_driver_joint_cmd_topic_, 10);
@@ -116,12 +120,32 @@ public:
         resp->message = ok ? "ok" : last_error_;
       });
 
+    move_to_joints_srv_ = node_->create_service<inspection_interface::srv::MoveToJoints>(
+      "move_to_joints",
+      [this](
+        const std::shared_ptr<inspection_interface::srv::MoveToJoints::Request> req,
+        std::shared_ptr<inspection_interface::srv::MoveToJoints::Response> resp) {
+        const double speed = clamp01(static_cast<double>(req->speed));
+        const bool ok = execute_joint_goal(req->target_joints, speed);
+        resp->success = ok;
+        resp->message = ok ? "ok" : last_error_;
+      });
+
     enable_client_ = node_->create_client<std_srvs::srv::Trigger>(arm_driver_enable_service_);
 
     setup_moveit();
   }
 
 private:
+  template <typename T>
+  T param(const std::string & name, const T & default_value)
+  {
+    if (node_->has_parameter(name)) {
+      return node_->get_parameter(name).get_value<T>();
+    }
+    return node_->declare_parameter<T>(name, default_value);
+  }
+
   void publish_status(const std::string & text)
   {
     std_msgs::msg::String msg;
@@ -173,6 +197,50 @@ private:
       return false;
     }
     return true;
+  }
+
+  bool execute_joint_goal(const std::vector<double> & target_joints, const double speed_scaling)
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    last_error_.clear();
+
+    if (move_group_ == nullptr) {
+      last_error_ = "MoveIt not initialized";
+      return false;
+    }
+    if (!maybe_enable_driver()) {
+      publish_status("enable_driver_failed");
+      return false;
+    }
+
+    publish_status("planning");
+    publish_progress(0.0);
+
+    const double speed = clamp01(speed_scaling);
+    move_group_->setMaxVelocityScalingFactor(speed);
+    move_group_->setMaxAccelerationScalingFactor(acceleration_scaling_);
+    move_group_->setJointValueTarget(target_joints);
+
+    moveit::planning_interface::MoveGroupInterface::Plan plan;
+    const auto code = move_group_->plan(plan);
+    if (code != moveit::core::MoveItErrorCode::SUCCESS) {
+      last_error_ = "joint planning failed";
+      publish_status("plan_failed");
+      return false;
+    }
+
+    const auto & traj = plan.trajectory_.joint_trajectory;
+    if (traj.joint_names.empty() || traj.points.empty()) {
+      last_error_ = "empty trajectory";
+      publish_status("plan_empty");
+      return false;
+    }
+
+    publish_status("executing");
+    const bool ok = stream_trajectory_ ? execute_trajectory(traj) : execute_final_point(traj);
+    publish_status(ok ? "done" : "execute_failed");
+    publish_progress(ok ? 1.0 : 0.0);
+    return ok;
   }
 
   bool execute_pose_goal(const geometry_msgs::msg::PoseStamped & goal, const double speed_scaling)
@@ -242,37 +310,64 @@ private:
     return true;
   }
 
+  // 在相邻轨迹点之间做线性插值，以固定频率（interpolation_hz）下发指令，
+  // 避免位置跳变导致电机"机关枪"式抖动。
+  static constexpr double kInterpolationHz = 100.0;
+
   bool execute_trajectory(const trajectory_msgs::msg::JointTrajectory & traj)
   {
-    int64_t prev_ns = 0;
     const auto points_n = traj.points.size();
-    for (size_t i = 0; i < points_n && rclcpp::ok(); ++i) {
-      const auto & pt = traj.points[i];
-      if (pt.positions.size() != traj.joint_names.size()) {
+    if (points_n == 0) {
+      return true;
+    }
+
+    const size_t n_joints = traj.joint_names.size();
+    const int64_t step_ns = static_cast<int64_t>(1e9 / kInterpolationHz);
+
+    for (size_t i = 1; i < points_n && rclcpp::ok(); ++i) {
+      const auto & p0 = traj.points[i - 1];
+      const auto & p1 = traj.points[i];
+      if (p0.positions.size() != n_joints || p1.positions.size() != n_joints) {
         last_error_ = "trajectory point size mismatch";
         return false;
       }
 
-      sensor_msgs::msg::JointState cmd;
-      cmd.header.stamp = node_->now();
-      cmd.name = traj.joint_names;
-      cmd.position = pt.positions;
-      joint_cmd_pub_->publish(cmd);
+      const int64_t t0_ns = duration_to_ns(p0.time_from_start);
+      const int64_t t1_ns = duration_to_ns(p1.time_from_start);
+      const int64_t seg_ns = t1_ns - t0_ns;
 
-      // points_n > 1 时：progress = i / (points_n - 1)，使进度在 [0, 1] 均匀分布
-      // points_n == 1 时直接发布 1.0，避免除零
-      publish_progress(points_n > 1 ? static_cast<double>(i) / static_cast<double>(points_n - 1) : 1.0);
-
-      // now_ns = 当前点相对于轨迹起点的绝对时间戳（纳秒）
-      // sleep_ns = now_ns - prev_ns = 相邻两轨迹点之间的时间间隔
-      // 用 max(0, ...) 防止时间戳乱序时 sleep 负值
-      const int64_t now_ns = duration_to_ns(pt.time_from_start);
-      const int64_t sleep_ns = std::max<int64_t>(0, now_ns - prev_ns);
-      prev_ns = now_ns;
-      if (sleep_ns > 0) {
-        std::this_thread::sleep_for(std::chrono::nanoseconds(sleep_ns));
+      if (seg_ns <= 0) {
+        continue;
       }
+
+      // 在 [p0, p1] 之间按 step_ns 步长线性插值
+      for (int64_t elapsed = 0; elapsed < seg_ns && rclcpp::ok(); elapsed += step_ns) {
+        const double alpha = static_cast<double>(elapsed) / static_cast<double>(seg_ns);
+
+        sensor_msgs::msg::JointState cmd;
+        cmd.header.stamp = node_->now();
+        cmd.name = traj.joint_names;
+        cmd.position.resize(n_joints);
+        for (size_t j = 0; j < n_joints; ++j) {
+          cmd.position[j] = p0.positions[j] + alpha * (p1.positions[j] - p0.positions[j]);
+        }
+        joint_cmd_pub_->publish(cmd);
+
+        std::this_thread::sleep_for(std::chrono::nanoseconds(step_ns));
+      }
+
+      // 进度
+      publish_progress(static_cast<double>(i) / static_cast<double>(points_n - 1));
     }
+
+    // 确保最后一个点精确到达
+    const auto & last = traj.points.back();
+    sensor_msgs::msg::JointState cmd;
+    cmd.header.stamp = node_->now();
+    cmd.name = traj.joint_names;
+    cmd.position = last.positions;
+    joint_cmd_pub_->publish(cmd);
+
     return rclcpp::ok();
   }
 
@@ -304,6 +399,7 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_goal_sub_;
 
   rclcpp::Service<inspection_interface::srv::MoveToPose>::SharedPtr move_to_pose_srv_;
+  rclcpp::Service<inspection_interface::srv::MoveToJoints>::SharedPtr move_to_joints_srv_;
 
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr enable_client_;
 };
@@ -318,9 +414,9 @@ int main(int argc, char ** argv)
   options.automatically_declare_parameters_from_overrides(true);
   auto node = rclcpp::Node::make_shared("arm_controller_node", options);
 
+  std::shared_ptr<arm_controller::ArmControllerNode> controller;
   try {
-    auto controller = std::make_shared<arm_controller::ArmControllerNode>(node);
-    (void)controller;
+    controller = std::make_shared<arm_controller::ArmControllerNode>(node);
   } catch (const std::exception & ex) {
     RCLCPP_FATAL(node->get_logger(), "Fatal error: %s", ex.what());
     rclcpp::shutdown();

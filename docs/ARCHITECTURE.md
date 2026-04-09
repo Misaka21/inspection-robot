@@ -10,7 +10,7 @@
   - Intel RealSense 深度相机（末端安装）
   - 海康工业相机（末端安装）
 
-- **技术方案**：AGV站位 + 机械臂逆解的联合优化
+- **技术方案**：AGV定点巡检 + 机械臂预设位姿 + 深度相机测距微调
 
 ## 2. 环境要求
 
@@ -55,10 +55,9 @@
 │ realsense_   │  ┌─────────────────┐        │
 │   (适配层)   │  │    算法层       │        │
 │               │  │                 │        │
-│               │  │ pose_detector  │◄───────┘
-│               │  │ path_planner   │         │
-│               │  │ defect_detector│        │
-└───────────────┘  └─────────────────┘        │
+│               │  │ defect_detector│◄───────┘
+│               │  │                 │
+└───────────────┘  └─────────────────┘
         │                                        │
         ▼                                        │
 ┌───────────────────────────────────────────────────────┐
@@ -93,8 +92,6 @@
 
 | 包名 | 职责 | 命名空间 |
 |------|------|----------|
-| `pose_detector` | 6D 位姿检测 | `/inspection/perception` |
-| `path_planner` | AGV+机械臂联合路径规划 | `/inspection/planning` |
 | `defect_detector` | 图像缺陷检测 | `/inspection/perception` |
 
 ### 4.4 协调层 (Coordination)
@@ -122,23 +119,24 @@
 ## 6. 状态机
 
 ```
-IDLE ──▶ LOCALIZING ──▶ PLANNING ──▶ EXECUTING ──▶ COMPLETED
-  ▲          │               │              │
-  │          ▼               ▼              ▼
-  │       PAUSED ◀────── FAILED ◀──────────┘
-  │          │
-  └──────────┘ (RESUME/STOP)
+IDLE ──▶ MOVING_TO_STATION ──▶ ARM_PRESET ──▶ DEPTH_ADJUST ──▶ CAPTURING ──▶ (下一站 or COMPLETED)
+  ▲              │                  │               │               │
+  │              ▼                  ▼               ▼               ▼
+  │           PAUSED ◀────────── FAILED ◀──────────────────────────┘
+  │              │
+  └──────────────┘ (RESUME/STOP)
 ```
 
 | 状态 | 说明 |
 |------|------|
 | IDLE | 空闲，等待任务 |
-| LOCALIZING | 检测工件位姿 |
-| PLANNING | 规划检测路径 |
-| EXECUTING | 执行检测 |
+| MOVING_TO_STATION | AGV 导航到站位（YAML 配置驱动） |
+| ARM_PRESET | 机械臂移动到预设位姿（MoveToJoints 服务） |
+| DEPTH_ADJUST | 深度相机测距，机械臂沿法线微调到目标距离 |
+| CAPTURING | 拍照 + 缺陷检测 |
 | PAUSED | 任务暂停 |
-| COMPLETED | 检测完成 |
-| FAILED | 检测失败 |
+| COMPLETED | 巡检完成 |
+| FAILED | 巡检失败 |
 | STOPPED | 任务停止 |
 
 ## 7. ROS 接口
@@ -202,46 +200,28 @@ IDLE ──▶ LOCALIZING ──▶ PLANNING ──▶ EXECUTING ──▶ COMPL
 **发布**：
 - `/inspection/state` (SystemState) - 系统状态
 - `/inspection/agv/goal_pose` (PoseStamped) - AGV 目标点
-- `/inspection/arm_control/cart_goal` (PoseStamped) - 机械臂目标
-- `/inspection/arm_control/joint_goal` (JointState) - 机械臂关节目标
 
 **订阅**：
 - `/inspection/agv/status` (AgvStatus) - AGV 状态（用于 arrived/stopped 门控）
-- `/inspection/arm/status` (ArmStatus) - 机械臂状态（用于 arrived 门控）
-- `/inspection/planning/path` (PoseArray) - 规划点序列（工程骨架）
+- `/inspection/arm/status` (ArmStatus) - 机械臂状态
+- `/inspection/realsense/d435/aligned_depth_to_color/image_raw` (Image) - 深度图
+
+**服务客户端**：
+- `/inspection/arm_control/move_to_joints` (MoveToJoints) - 机械臂预设位姿
+- `/inspection/arm_control/move_to_pose` (MoveToPose) - 深度微调
+- `/inspection/perception/detect_defect` (Trigger) - 触发缺陷检测
 
 **服务**：
-- `/inspection/start` - 启动任务
-- `/inspection/stop` - 停止任务
-- `/inspection/pause` - 暂停任务
-- `/inspection/resume` - 恢复任务
+- `/inspection/start` - 启动巡检
+- `/inspection/stop` - 停止巡检
+- `/inspection/pause` - 暂停巡检
+- `/inspection/resume` - 恢复巡检
 - `/inspection/get_status` - 获取状态
 
-### 7.6 pose_detector
+**配置**：
+- `stations_file` 参数指向 `inspection_stations.yaml`（YAML 配置驱动的站位序列）
 
-**订阅**：
-- `/inspection/realsense/d435/depth/color/points` (PointCloud2)
-
-**发布**：
-- `detected_pose` (PoseStamped) - 检测到位姿
-- `confidence` (Float32) - 置信度
-
-**服务**：
-- `detect` - 触发检测
-
-### 7.7 path_planner
-
-**订阅**：
-- `/inspection/perception/detected_pose` - 工件位姿
-- `/inspection/agv/current_pose` - AGV 当前位姿
-
-**发布**：
-- `path` (PoseArray) - 规划路径
-
-**服务**：
-- `optimize` - 触发规划
-
-### 7.8 defect_detector
+### 7.6 defect_detector
 
 **订阅**：
 - `/inspection/hikvision/image_raw` (Image)
@@ -277,26 +257,15 @@ map (SLAM全局坐标系)                    ← agv_driver 发布 (map → base
 启动 inspection_bringup → 加载配置 → 驱动连接 → TF 发布
 ```
 
-### 10.2 工件定位
+### 10.2 巡检执行（配置驱动）
 ```
-realsense_driver → pose_detector → task_coordinator
-    (点云)              (位姿)          (决策)
-```
-
-### 10.3 路径规划
-```
-pose_detector + CAD模型 + agv_pose → path_planner → task_coordinator
-```
-
-### 10.4 执行阶段
-```
-for waypoint in path:
-    task_coordinator → agv_driver (goal_pose)
+for station in stations.yaml:
+    task_coordinator → agv_driver (goal_pose)        # MOVING_TO_STATION
     wait arrived && stopped
-    task_coordinator → arm_controller (MoveJ)
-    task_coordinator → hikvision_driver (trigger_capture)
-    hikvision_driver → defect_detector (image)
-    defect_detector → task_coordinator (result)
+    task_coordinator → arm_controller (MoveToJoints)  # ARM_PRESET
+    realsense_driver → task_coordinator (depth)        # DEPTH_ADJUST
+    task_coordinator → arm_controller (MoveToPose)     # 微调
+    task_coordinator → defect_detector (trigger)       # CAPTURING
 ```
 
 ## 11. 启动方式
@@ -403,14 +372,6 @@ def get_algorithm_container():
         executable='component_container_isolated',
         arguments=['--use_multi_threaded_executor'],
         composable_node_descriptions=[
-            ComposableNode(
-                package='pose_detector',
-                plugin='pose_detector::PoseDetectorNode',
-                name='pose_detector',
-                namespace='inspection/perception',
-                parameters=[node_params],
-                extra_arguments=[{'use_intra_process_comms': True}]  # 启用进程内通信
-            ),
             ComposableNode(
                 package='defect_detector',
                 plugin='defect_detector::DefectDetectorNode',
@@ -547,31 +508,14 @@ inspection_bringup, inspection_supervisor
          ↑
 控制层: arm_controller (依赖 arm_driver + MoveIt2)
          ↑
-算法层: pose_detector, path_planner, defect_detector
+算法层: defect_detector
          ↑
 task_coordinator (依赖所有)
 ```
 
 ## 15. 关键技术细节
 
-### 15.1 联合优化代价函数
-
-```math
-J = w_1\|b-b_{prev}\|^2 + w_2\|q-q_{prev}\|^2 + w_3\frac{1}{m(q)+\epsilon} + w_4E_{view} + w_5E_{limit}
-```
-
-其中：
-- `b`: AGV 站位 (x, y, yaw)
-- `q`: 机械臂关节角
-- `m(q)`: 可操作度
-
-### 15.2 位姿链计算
-
-```
-T_map_cam* = T_map_base * T_base_arm_base * T_arm_base_tcp * T_tcp_cam
-```
-
-### 15.3 到位门控
+### 15.1 到位门控
 
 ```
 agv_ready = connected && arrived && stopped && (error_code == "OK")

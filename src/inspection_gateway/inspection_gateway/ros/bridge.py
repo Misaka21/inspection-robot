@@ -103,10 +103,10 @@ class RosBridge(Node):
                 raise out["exc"]
             return out["resp"]
 
-    def start_inspection(self, plan_id: str, dry_run: bool, timeout_s: float):
+    def start_inspection(self, dry_run: bool, timeout_s: float):
         req = StartInspection.Request()
         req.legacy_task_id = 0
-        req.plan_id = plan_id
+        req.plan_id = ""
         req.inspection_type = ""
         req.dry_run = bool(dry_run)
         return self._call(self._start_cli, req, self._names.start_srv, timeout_s)

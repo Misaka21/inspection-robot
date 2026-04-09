@@ -9,7 +9,9 @@ import os
 
 def generate_launch_description():
     """启动完整的检测系统"""
-    
+
+    bringup_config = os.path.join(get_package_share_directory('inspection_bringup'), 'config')
+
     # 驱动层
     drivers_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -17,7 +19,7 @@ def generate_launch_description():
             '/drivers.launch.py'
         ])
     )
-    
+
     # AGV / Arm
     agv_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -25,6 +27,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             'namespace': '/inspection/agv',
+            'params_file': os.path.join(bringup_config, 'agv_driver.yaml'),
         }.items(),
     )
     arm_driver_launch = IncludeLaunchDescription(
@@ -33,6 +36,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             'namespace': '/inspection/arm',
+            'params_file': os.path.join(bringup_config, 'arm_driver.yaml'),
         }.items(),
     )
     arm_controller_launch = IncludeLaunchDescription(
@@ -41,26 +45,11 @@ def generate_launch_description():
         ),
         launch_arguments={
             'namespace': '/inspection/arm_control',
+            'params_file': os.path.join(bringup_config, 'arm_controller.yaml'),
         }.items(),
     )
 
-    # Perception / planning / coordination (工程骨架)
-    pose_detector_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(get_package_share_directory('pose_detector'), 'launch', 'pose_detector.launch.py')
-        ),
-        launch_arguments={
-            'namespace': '/inspection/perception',
-        }.items(),
-    )
-    path_planner_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(get_package_share_directory('path_planner'), 'launch', 'path_planner.launch.py')
-        ),
-        launch_arguments={
-            'namespace': '/inspection/planning',
-        }.items(),
-    )
+    # Perception / coordination
     defect_detector_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(get_package_share_directory('defect_detector'), 'launch', 'defect_detector.launch.py')
@@ -75,6 +64,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             'namespace': '/inspection',
+            'stations_file': os.path.join(bringup_config, 'inspection_stations.yaml'),
         }.items(),
     )
 
@@ -93,8 +83,6 @@ def generate_launch_description():
         agv_launch,
         arm_driver_launch,
         arm_controller_launch,
-        pose_detector_launch,
-        path_planner_launch,
         defect_detector_launch,
         task_coordinator_launch,
         inspection_gateway_launch,

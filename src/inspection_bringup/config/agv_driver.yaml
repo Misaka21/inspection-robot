@@ -57,6 +57,12 @@
     # 引导流程失败后重试间隔（毫秒）
     bootstrap_retry_interval_ms: 5000
 
+    # 导航最大线速度（m/s），0 表示不限（使用 AGV 默认值，一般 0.5m/s）
+    nav_max_speed: 0.3
+
+    # 导航最大角速度（rad/s），0 表示不限（使用 AGV 默认值，一般 ~1.05rad/s≈60°/s）
+    nav_max_wspeed: 0.5
+
     # 是否输出 AGV TCP 请求/响应日志（会比较刷屏，建议仅排障时开启）
     log_io: false
 

@@ -34,7 +34,7 @@ def start_inspection(
     runtime: GatewayRuntime = Depends(get_runtime),
 ):
     try:
-        resp = bridge.start_inspection(plan_id=body.plan_id, dry_run=body.dry_run, timeout_s=3.0)
+        resp = bridge.start_inspection(dry_run=body.dry_run, timeout_s=3.0)
     except TimeoutError as ex:
         return StartInspectionResponse(result=Result(code=ErrorCode.TIMEOUT, message=str(ex)))
     except Exception as ex:
@@ -44,7 +44,6 @@ def start_inspection(
         return StartInspectionResponse(result=Result(code=ErrorCode.INTERNAL, message=str(resp.message)))
 
     runtime.task_id = str(uuid.uuid4())
-    runtime.plan_id = body.plan_id
     runtime.task_name = ""
     return StartInspectionResponse(result=Result(code=ErrorCode.OK, message="ok"), task_id=runtime.task_id)
 

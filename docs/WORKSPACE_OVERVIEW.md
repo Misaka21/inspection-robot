@@ -39,14 +39,13 @@ inspection-site (React) ← REST/WS → inspection_gateway (FastAPI) → task_co
    - 默认 `ViewHint.view_direction = -SurfacePoint.normal`
    - 可调 `ViewHint.roll_deg`（绕光轴旋转，控制"图像上方向"）
 5. 前端下发点位：`POST /api/v1/targets`
-6. 触发规划：`POST /api/v1/plans` → `plan_id + InspectionPath`
-7. 前端预览：
-   - 导航路径折线：连接 `InspectionPath.waypoints[].agv_pose`（可仅用于显示下采样）
-   - 机械臂目标：`arm_joint_goal`（或 `tcp_pose_goal/camera_pose` 若网关提供）
+6. 前端预览：
+   - 站位点与机械臂预设来自 YAML 配置文件（配置驱动，不再由算法实时规划）
+   - 导航路径折线：连接各站位点坐标（可仅用于显示下采样）
 
 ### 2.2 Operator（执行与结果）
 
-1. `POST /api/v1/tasks` （携带 `plan_id`，触发 StartInspection）
+1. `POST /api/v1/tasks` （触发 StartInspection，站位配置来自 YAML）
 2. 前端订阅状态流：`WS /ws` → `system_state`（AGV/机械臂/进度）
 3. 前端订阅事件流：`WS /ws` → `inspection_event`（抓拍/缺陷/告警）[待实现]
 4. 原图下载：
@@ -56,10 +55,7 @@ inspection-site (React) ← REST/WS → inspection_gateway (FastAPI) → task_co
 
 ## 3. "路径折线"能否获取？
 
-可以。V1 的"路径折线"定义为：**规划输出的站位点（waypoints）按顺序连线**，数据来自：
-
-- `POST /api/v1/plans` 响应中的 `path.waypoints[].agv_pose`
-- 或 `GET /api/v1/plans/{plan_id}` 查询已有规划
+可以。V1 的"路径折线"定义为：**YAML 配置文件中定义的站位点按顺序连线**，数据来自站位配置（配置驱动，不再需要算法实时规划）。
 
 注意：这不是底盘内部规划器的细粒度轨迹（如果未来需要"真实路径采样点"，再单独扩展接口或对接底盘能力）。
 

@@ -59,7 +59,11 @@ public:
   bool query_reloc_status(int * reloc_status, std::string * error);
 
   // 导航目标：发送地图坐标系下的位姿目标，AGV 自动规划路径行驶
-  bool send_goal(double x, double y, double yaw, std::string * error);
+  // max_speed: 最大线速度(m/s)，max_wspeed: 最大角速度(rad/s)，<=0 表示不限
+  bool send_goal(
+    double x, double y, double yaw,
+    double max_speed, double max_wspeed,
+    std::string * error);
   // 开环速度控制：直接发送底盘速度（调试或无地图场景），duration_ms 为持续时间
   bool send_open_loop_motion(double vx, double vy, double w, int duration_ms, std::string * error);
   bool stop_open_loop_motion(std::string * error);

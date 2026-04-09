@@ -18,7 +18,7 @@ from ..ros.bridge import RosBridge
 from ..ros.state_hub import StateHub
 from ..store.cad_store import CadStore
 from ..store.media_store import MediaStore
-from .routes import cad, captures, media, nav, plans, targets, tasks
+from .routes import cad, captures, media, nav, targets, tasks
 from .ws.handler import ws_router
 
 
@@ -59,7 +59,6 @@ def create_app(
     app.include_router(media.router, prefix=prefix)
     app.include_router(cad.router, prefix=prefix)
     app.include_router(targets.router, prefix=prefix)
-    app.include_router(plans.router, prefix=prefix)
     app.include_router(captures.router, prefix=prefix)
 
     # -- WebSocket -----------------------------------------------------------

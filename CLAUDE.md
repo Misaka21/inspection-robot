@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 基于移动协作机械臂的大型工件视觉检测系统 (ROS2 Humble)
 
 - AGV (仙宫智能) + 机械臂 (大族E05) + 深度相机 (RealSense) + 工业相机 (海康)
-- 技术方案：AGV站位 + 机械臂逆解的联合优化
+- 技术方案：AGV定点巡检 + 机械臂预设位姿 + 深度相机测距微调
 
 ## 常用命令
 
@@ -81,8 +81,6 @@ src/
 ├── arm_controller/           # MoveIt2 运动控制
 ├── agv_driver/               # AGV 底盘驱动 (TCP)
 ├── hikvision_driver/         # 海康工业相机驱动
-├── pose_detector/            # 6D 位姿检测
-├── path_planner/             # AGV+机械臂联合路径规划
 ├── defect_detector/          # 图像缺陷检测
 ├── task_coordinator/         # 任务状态机编排
 ├── inspection_interface/     # 消息/服务定义
@@ -96,7 +94,7 @@ src/
 ### 层级关系
 - 驱动层: elfin_sdk (elfin_ethercat_driver, soem_ros2), arm_driver, agv_driver, hikvision_driver
 - 控制层: arm_controller (MoveIt2)
-- 算法层: pose_detector, path_planner, defect_detector
+- 算法层: defect_detector
 - 协调层: task_coordinator
 - 基础设施: inspection_interface, inspection_bringup, inspection_supervisor
 - 对外桥接: inspection_gateway（FastAPI REST/WS server，运行在机器人端，前端源码在独立 inspection-site 仓库）

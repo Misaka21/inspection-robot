@@ -87,6 +87,9 @@ public:
     _bootstrap_poll_interval_ms = declare_parameter<int>("bootstrap_poll_interval_ms", 500);
     _bootstrap_retry_interval_ms = declare_parameter<int>("bootstrap_retry_interval_ms", 5000);
 
+    _nav_max_speed = declare_parameter<double>("nav_max_speed", 0.0);
+    _nav_max_wspeed = declare_parameter<double>("nav_max_wspeed", 0.0);
+
     const bool log_io = declare_parameter<bool>("log_io", false);
     const int log_io_max_chars = declare_parameter<int>("log_io_max_chars", 2048);
 
@@ -163,7 +166,9 @@ private:
     const double yaw = yaw_from_quaternion(msg->pose.orientation);
 
     std::string error;
-    if (!_agv_client->send_goal(msg->pose.position.x, msg->pose.position.y, yaw, &error)) {
+    if (!_agv_client->send_goal(
+          msg->pose.position.x, msg->pose.position.y, yaw,
+          _nav_max_speed, _nav_max_wspeed, &error)) {
       _last_error = error;
       RCLCPP_WARN(
         get_logger(),
@@ -174,6 +179,10 @@ private:
         yaw);
       return;
     }
+
+    // 新 goal 已发出，抑制旧的 arrived 状态，直到 AGV 开始执行（task_status 离开 ARRIVED）
+    _suppress_arrived = true;
+    _goal_sent_time = now().nanoseconds();
 
     RCLCPP_INFO(
       get_logger(),
@@ -233,6 +242,18 @@ private:
         get_logger(), *get_clock(), 2000,
         "poll state failed: %s",
         error.c_str());
+    }
+
+    // 检测 AGV 开始运动的瞬间，用于排查 goal->运动 的延迟
+    if (ok && _suppress_arrived && current_state.has_speed && !current_state.is_stop
+        && _last_state.is_stop) {
+      const auto now_ns = now().nanoseconds();
+      const double delay_ms = (_goal_sent_time > 0)
+        ? static_cast<double>(now_ns - _goal_sent_time) / 1e6
+        : -1.0;
+      RCLCPP_INFO(
+        get_logger(),
+        "AGV started moving (%.0f ms after goal sent)", delay_ms);
     }
 
     if (ok || !_last_state.connected) {
@@ -515,10 +536,22 @@ private:
     _status_pub->publish(status);
   }
 
-  // AGV 到位判断：导航任务状态必须是 ARRIVED（task_status=4）
-  bool is_arrived(const AgvPollState & state) const
+  // AGV 到位判断：导航任务状态必须是 ARRIVED（task_status=4）。
+  // _suppress_arrived 机制：发送新 goal 后置 true，防止上一次导航残留的
+  // task_status=4 被误判为"新目标已到达"。当 task_status 变为非 ARRIVED
+  // （说明 AGV 开始执行新任务）后自动解除抑制。
+  bool is_arrived(const AgvPollState & state)
   {
-    return state.has_nav && state.task_status == TASK_STATUS_ARRIVED;
+    if (!state.has_nav) {
+      return false;
+    }
+    if (_suppress_arrived) {
+      if (state.task_status != TASK_STATUS_ARRIVED) {
+        _suppress_arrived = false;  // AGV 已开始执行，解除抑制
+      }
+      return false;
+    }
+    return state.task_status == TASK_STATUS_ARRIVED;
   }
 
   bool is_stopped(const AgvPollState & state) const
@@ -576,6 +609,9 @@ private:
   std::string _map_frame_id = "map";
   std::string _base_frame_id = "base_link";
 
+  double _nav_max_speed = 0.0;    // 导航最大线速度(m/s)，0=不限
+  double _nav_max_wspeed = 0.0;   // 导航最大角速度(rad/s)，0=不限
+
   bool _enable_bootstrap = true;
   bool _enable_control_lock = false;
   std::string _control_nick_name = "inspection_agv_driver";
@@ -606,6 +642,8 @@ private:
 
   AgvPollState _last_state;
   std::string _last_error;
+  bool _suppress_arrived = false;   // 新 goal 发出后抑制旧的 arrived 状态
+  int64_t _goal_sent_time = 0;     // goal 发出时的时间戳(ns)，用于计算延迟
 };
 
 }  // namespace agv_driver

@@ -22,7 +22,9 @@ namespace arm_driver
 class ArmDriverNode
 {
 public:
-  explicit ArmDriverNode(const rclcpp::Node::SharedPtr & node);
+  ArmDriverNode(
+    const rclcpp::Node::SharedPtr & node,
+    const rclcpp::Node::SharedPtr & elfin_node);
 
 private:
   struct AxisState
@@ -113,6 +115,7 @@ private:
     std::shared_ptr<std_srvs::srv::Trigger::Response> response);
 
   rclcpp::Node::SharedPtr node_;
+  rclcpp::Node::SharedPtr elfin_node_;
 
   std::string ethernet_name_;
   double state_publish_rate_hz_{50.0};
