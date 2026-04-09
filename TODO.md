@@ -14,24 +14,21 @@
 - [x] 支持控制面：`POST /tasks` (Start) + `pause/resume/stop` + `GET /tasks/{id}/status` + `WS system_state`
 - [x] 支持导航底图：`GET /nav/map`（网关侧已实现；依赖 ROS `agv_driver/get_nav_map`）
 - [x] 支持媒体下载：`GET /media/{media_id}`（网关侧 `MediaStore` 已实现）
-- [x] 新增 `inspection_sim`：无硬件端到端联调（fake agv/arm/perception/planning/defect + sim launch），用于验证状态机/门控/网关与论文实验复现
-- [x] 实现 `POST /targets`：接收并存储检测点位到 `GatewayRuntime`
-- [x] 实现 `POST /plans`：网关侧弧形路径生成（临时方案，未调用 ROS2 path_planner）
-- [x] 实现 `GET /plans/{plan_id}`：从缓存查询已规划路径
-- [x] `task_coordinator` 补齐 step 3 机械臂目标下发（已修复：通过 `path_detail` 获取关节角并发布 `arm_control/joint_goal`）
-- [x] `task_coordinator` 启用超时机制（已修复：`_agv_timeout_sec` / `_arm_timeout_sec` / `_detection_timeout_sec` 已生效）
+- [x] 新增 `inspection_sim`：无硬件端到端联调
+- [x] `task_coordinator` 状态机改为配置驱动（YAML 站位序列）：MOVING_TO_STATION → ARM_PRESET → DEPTH_ADJUST → CAPTURING
+- [x] 删除 `pose_detector` 和 `path_planner`（需求简化，不再需要 6D 位姿推断和联合优化路径规划）
+- [x] 删除 gateway 的 plans 端点（巡检任务由 YAML 配置驱动，无需动态规划）
 - [ ] `agv_driver` 实现 `get_nav_map` service server（优先返回 map_id/resolution/origin/thumbnail；底图可渐进增强）
   - 仿真端 `fake_agv` 已提供，真机端需封装厂商 TCP API（1300/4011/1513）
 - [ ] 取图链路最小化可回显：抓拍图落盘成可下载 `media_id` + 能被前端列表/回看（`GET /tasks/{id}/captures` + thumbnail）
 - [ ] TF/标定口径统一并可验证：`map→base_link→arm_base→tool0→hikvision_frame`（补充 `base_link→arm_base` 静态 TF）
+- [ ] `defect_detector` 填充实际检测算法（当前为骨架代码）
+- [ ] 深度补偿逻辑真机验证：确认 RealSense 深度图 ROI 中心测距精度满足 ±2cm 容差
 
-## P1（规划与约束）
+## P1（功能完善）
 
-- [ ] `path_planner` 从 Trigger 骨架升级为"输入 targets+capture_config 输出 InspectionPath"的 ROS2 srv（网关调用）
-  - 当前已发布 `path_detail`（含关节角），但 `POST /plans` 仍使用网关侧弧形生成临时方案
-- [ ] `POST /plans` 对接 ROS2 `path_planner`，替代当前网关侧弧形生成临时方案
-- [ ] 引入 `CaptureConfig.focus_distance_m` + `max_tilt_from_normal_deg` 的约束进入采样/IK 过滤（为后续逆解做铺垫）
 - [ ] `task_coordinator` 订阅 `defect_detector` 结果 topic（当前只调 Trigger 看 bool，缺陷详情丢失）
+- [ ] `inspection_stations.yaml` 真机标定：填入实际 AGV 站位坐标和机械臂关节角
 - [ ] `sim_system.launch.py` 清理遗留的 gRPC 参数（`grpc_port` / `--grpc-port`）
 
 ## P2（结果与事件流）
@@ -52,7 +49,6 @@
 - [ ] `task_coordinator` 拆分 `CoordinatorCore`（无 ROS 依赖）+ `InterlockPolicy` + `RosAdapter`
 - [ ] `arm_controller` 拆分 `MoveItFacade` + `TrajectoryExecutor` + `DriverBridge`；解决回调阻塞问题
 - [ ] `hikvision_driver` 拆分 `HkSdkSession` + `GrabWorker` + `MonitorWorker` + `RosAdapter`
-- [ ] `pose_detector` 新增 `PoseEstimator` 核心类（无 ROS 依赖）
 - [ ] `defect_detector` 新增 `DefectModel` + `Preprocess` + `Postprocess`
 - [ ] `inspection_supervisor` 拆分 `LivenessWatcher` + `ErrorCodeWatcher` + `InterlockWatcher`
 - [ ] 统一 `arm_driver` / `arm_controller` / `hikvision_driver` / `inspection_supervisor` 命名规范为 `_prefix`

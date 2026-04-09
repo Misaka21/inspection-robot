@@ -36,7 +36,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/MoveToPose.srv"
   "srv/MoveToJoints.srv"
   "srv/GetNavMap.srv"
-  "srv/PlanInspection.srv"
   DEPENDENCIES std_msgs geometry_msgs sensor_msgs
 )
 

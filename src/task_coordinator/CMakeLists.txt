@@ -12,6 +12,8 @@ find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(inspection_interface REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 add_executable(task_coordinator_node src/task_coordinator_node.cpp)
 target_include_directories(task_coordinator_node PUBLIC
@@ -25,7 +27,9 @@ ament_target_dependencies(
   "sensor_msgs"
   "std_srvs"
   "inspection_interface"
+  "tf2"
 )
+target_link_libraries(task_coordinator_node yaml-cpp)
 
 install(TARGETS task_coordinator_node
   DESTINATION lib/${PROJECT_NAME})

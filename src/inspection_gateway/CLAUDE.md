@@ -3,7 +3,7 @@
 本包是 **Web HMI ↔ ROS2 的桥接层**，替代了原有的 gRPC 方案（`inspection-api` + `inspection-hmi` 已归档）。
 
 ```
-浏览器 (任意设备) ──REST/WS──→ inspection_gateway (FastAPI, AGX :8080) ──ROS2──→ drivers/planners/coordinator
+浏览器 (任意设备) ──REST/WS──→ inspection_gateway (FastAPI, AGX :8080) ──ROS2──→ drivers/controller/coordinator
 ```
 
 前端源码在独立的 `inspection-site` 仓库中开发，`npm run build` 产物部署到 `frontend/dist/`，由 FastAPI 托管。
@@ -20,7 +20,7 @@
 
 **不负责：**
 - 设备驱动协议（在各 `*_driver` 内）
-- 规划/检测算法（在 `path_planner` / `defect_detector` 内，gateway 只编排调用）
+- 检测算法（在 `defect_detector` 内，gateway 只编排调用）
 - 前端源码（在 `inspection-site` 仓库）
 
 ---
@@ -37,7 +37,6 @@ inspection_gateway/
 │   ├── routes/
 │   │   ├── cad.py          # POST /api/v1/cad/upload
 │   │   ├── targets.py      # POST /api/v1/targets
-│   │   ├── plans.py        # POST/GET /api/v1/plans
 │   │   ├── tasks.py        # POST /api/v1/tasks + pause/resume/stop/status
 │   │   ├── nav.py          # GET /api/v1/nav/map
 │   │   ├── media.py        # GET /api/v1/media/{id}
@@ -53,7 +52,7 @@ inspection_gateway/
 │   └── media_store.py      # SHA256 内容寻址媒体文件存储
 ├── domain/
 │   ├── converters.py       # ROS msg → Pydantic model 纯转换函数
-│   └── runtime.py          # GatewayRuntime (task_id/plan_id/task_name 运行时状态)
+│   └── runtime.py          # GatewayRuntime (task_id/task_name 运行时状态)
 └── frontend/
     └── dist/               # inspection-site 构建产物, FastAPI 静态托管
 ```
@@ -71,9 +70,9 @@ inspection_gateway/
 |------|------|---------|------|
 | POST | `/api/v1/cad/upload` | **已实现** | multipart/form-data, SHA256 内容寻址写入 CadStore |
 | POST | `/api/v1/targets` | **已实现** | 接收 targets 存储到 `GatewayRuntime.targets_by_model`，关联 `model_id` |
-| POST | `/api/v1/plans` | **已实现** | 网关侧弧形路径生成（临时方案），返回 `InspectionPath` + `plan_id` |
-| GET | `/api/v1/plans/{plan_id}` | **已实现** | 从 `runtime.plans` 缓存查询 |
-| POST | `/api/v1/tasks` | **已实现** | 调用 `RosBridge.start_inspection()` |
+| ~~POST~~ | ~~`/api/v1/plans`~~ | **已移除** | 系统改为配置驱动，站位由 YAML 定义 |
+| ~~GET~~ | ~~`/api/v1/plans/{plan_id}`~~ | **已移除** | 同上 |
+| POST | `/api/v1/tasks` | **已实现** | 调用 `RosBridge.start_inspection()`（不再需要 `plan_id`） |
 | POST | `/api/v1/tasks/{id}/pause` | **已实现** | 调用 `RosBridge.pause_inspection()` |
 | POST | `/api/v1/tasks/{id}/resume` | **已实现** | 调用 `RosBridge.resume_inspection()` |
 | POST | `/api/v1/tasks/{id}/stop` | **已实现** | 调用 `RosBridge.stop_inspection()` |
@@ -88,8 +87,8 @@ OpenAPI 文档自动生成: `http://localhost:8080/docs`
 ### 桩代码待实现清单
 
 1. ~~**`POST /targets`**~~ — ✅ 已实现：接收 `SetTargetsRequest`，存储到 `runtime.targets_by_model`
-2. **`POST /plans`** — 当前为网关侧弧形路径生成（临时），需要：对接 ROS2 `path_planner` srv
-3. ~~**`GET /plans/{plan_id}`**~~ — ✅ 已实现：从 `runtime.plans` 缓存读取
+2. ~~**`POST /plans`**~~ — ✅ 已移除（系统改为配置驱动）
+3. ~~**`GET /plans/{plan_id}`**~~ — ✅ 已移除（同上）
 4. **`GET /tasks/{id}/captures`** — 需要：订阅 `InspectionEvent`（`CAPTURED`/`DEFECT_FOUND`），持久化到 store 中，按 task_id/point_id 查询
 5. **WebSocket `inspection_event`** — 需要：订阅 ROS2 的检测事件 topic，转为 `inspection_event` 类型推送给前端
 
@@ -138,7 +137,6 @@ OpenAPI 文档自动生成: `http://localhost:8080/docs`
 
 ### 缺失的 ROS2 接口（桩代码需要的）
 
-- 规划服务（`SetTargets` + `PlanInspection`）— 需要 `path_planner` 或 `task_coordinator` 提供 ROS2 srv
 - 检测事件 topic — 需要 `task_coordinator` 或 `defect_detector` 发布 `InspectionEvent` 消息
 
 ---

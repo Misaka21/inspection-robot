@@ -91,7 +91,7 @@ def ros_system_state_to_task_status(ros_state, ctx: GatewayTaskContext) -> TaskS
     interlock_message = "OK" if interlock_ok else "WAIT_AGV_READY"
 
     phase_val = int(ros_state.phase)
-    phase = TaskPhase(phase_val) if 0 <= phase_val <= 8 else TaskPhase.UNSPECIFIED
+    phase = TaskPhase(phase_val) if 0 <= phase_val <= 9 else TaskPhase.UNSPECIFIED
 
     return TaskStatus(
         task_id=task_id,

@@ -186,13 +186,14 @@ class PlanningStatistics(BaseModel):
 class TaskPhase(IntEnum):
     UNSPECIFIED = 0
     IDLE = 1
-    LOCALIZING = 2
-    PLANNING = 3
-    EXECUTING = 4
-    PAUSED = 5
+    MOVING_TO_STATION = 2
+    ARM_PRESET = 3
+    DEPTH_ADJUST = 4
+    CAPTURING = 5
     COMPLETED = 6
     FAILED = 7
     STOPPED = 8
+    PAUSED = 9
 
 
 class AgvStatus(BaseModel):
@@ -346,7 +347,6 @@ class GetPlanResponse(BaseModel):
 
 
 class StartInspectionRequest(BaseModel):
-    plan_id: str
     dry_run: bool = False
 
 
