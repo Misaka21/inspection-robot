@@ -36,7 +36,7 @@ ament_target_dependencies(
 install(TARGETS arm_controller_node
   DESTINATION lib/${PROJECT_NAME})
 
-install(DIRECTORY launch config
+install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)

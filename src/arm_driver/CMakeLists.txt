@@ -37,7 +37,7 @@ install(TARGETS arm_driver_node
 install(DIRECTORY include/
   DESTINATION include)
 
-install(DIRECTORY launch config
+install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
