@@ -10,7 +10,7 @@ endif()
 
 # Install launch and config files
 install(
-  DIRECTORY launch config
+  DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}/
 )
 
