@@ -17,7 +17,8 @@
 默认命名空间：`/inspection/agv`
 
 订阅：
-- `goal_pose` (`geometry_msgs/msg/PoseStamped`)：导航目标（`map_frame_id`）
+- `goal_pose` (`geometry_msgs/msg/PoseStamped`)：导航目标（`map_frame_id`，freeGo 自由导航）
+- `goal_station` (`std_msgs/msg/String`)：按 RoboShop 站点名称导航（固定路径，如 "LM2"）
 - `cmd_vel` (`geometry_msgs/msg/Twist`)：开环速度调试
 
 发布：
@@ -51,7 +52,7 @@
 
 职责：
 - 对 Node 暴露稳定语义函数：
-  - `send_goal / send_open_loop_motion / stop_open_loop_motion / poll_state`
+  - `send_goal / send_goal_by_name / send_open_loop_motion / stop_open_loop_motion / poll_state`
 - 聚合并解析多条厂商命令（位置/速度/导航/电量/告警等）
 - 把返回结果整理成纯 C++ struct（如 `AgvPollState`），避免 ROS 类型下沉
 

@@ -58,10 +58,19 @@ public:
   bool confirm_loc(std::string * error);
   bool query_reloc_status(int * reloc_status, std::string * error);
 
-  // 导航目标：发送地图坐标系下的位姿目标，AGV 自动规划路径行驶
+  // 导航目标：发送地图坐标系下的位姿目标，AGV 自动规划路径行驶（freeGo 模式）
   // max_speed: 最大线速度(m/s)，max_wspeed: 最大角速度(rad/s)，<=0 表示不限
   bool send_goal(
     double x, double y, double yaw,
+    double max_speed, double max_wspeed,
+    std::string * error);
+
+  // 固定路径导航：按 RoboShop 中预设的站点名称导航（cmd 3051）
+  // target_id: 目标站点名称（如 "LM2"），source_id: 起始站点（"SELF_POSITION" 表示当前位置）
+  // max_speed/max_wspeed: <=0 表示不限
+  bool send_goal_by_name(
+    const std::string & target_id,
+    const std::string & source_id,
     double max_speed, double max_wspeed,
     std::string * error);
   // 开环速度控制：直接发送底盘速度（调试或无地图场景），duration_ms 为持续时间

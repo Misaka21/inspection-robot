@@ -13,6 +13,7 @@
 #include "inspection_interface/msg/agv_status.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/string.hpp"
 #include "tf2_ros/transform_broadcaster.h"
 
 namespace agv_driver
@@ -103,6 +104,12 @@ public:
         on_goal_pose(msg);
       });
 
+    _goal_station_sub = create_subscription<std_msgs::msg::String>(
+      "goal_station", 10,
+      [this](const std_msgs::msg::String::SharedPtr msg) {
+        on_goal_station(msg);
+      });
+
     _cmd_vel_sub = create_subscription<geometry_msgs::msg::Twist>(
       "cmd_vel", 10,
       [this](const geometry_msgs::msg::Twist::SharedPtr msg) {
@@ -190,6 +197,42 @@ private:
       msg->pose.position.x,
       msg->pose.position.y,
       yaw);
+  }
+
+  void on_goal_station(const std_msgs::msg::String::SharedPtr & msg)
+  {
+    if (_enable_bootstrap && !_bootstrap_ready) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "drop goal_station because bootstrap is not ready");
+      return;
+    }
+
+    if (msg->data.empty()) {
+      RCLCPP_WARN(get_logger(), "drop goal_station: empty station name");
+      return;
+    }
+
+    std::string error;
+    if (!_agv_client->send_goal_by_name(
+          msg->data, "SELF_POSITION",
+          _nav_max_speed, _nav_max_wspeed, &error)) {
+      _last_error = error;
+      RCLCPP_WARN(
+        get_logger(),
+        "send goal_station failed: %s (target=%s)",
+        error.c_str(),
+        msg->data.c_str());
+      return;
+    }
+
+    _suppress_arrived = true;
+    _goal_sent_time = now().nanoseconds();
+
+    RCLCPP_INFO(
+      get_logger(),
+      "goal_station sent: target=%s source=SELF_POSITION",
+      msg->data.c_str());
   }
 
   void on_cmd_vel(const geometry_msgs::msg::Twist::SharedPtr & msg)
@@ -631,6 +674,7 @@ private:
   std::unique_ptr<AgvClient> _agv_client;
 
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr _goal_sub;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr _goal_station_sub;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr _cmd_vel_sub;
 
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr _current_pose_pub;

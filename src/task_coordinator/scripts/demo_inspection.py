@@ -14,6 +14,7 @@
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import String
 from inspection_interface.msg import AgvStatus, ArmStatus
 from inspection_interface.srv import MoveToJoints
 from std_srvs.srv import Trigger
@@ -22,23 +23,26 @@ import time
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  在这里改点位！
+#  agv 支持两种格式：
+#    - 字符串：RoboShop 站点名称，如 "LM2"（走预设路径）
+#    - 列表：  [x, y, yaw] 坐标（自由导航）
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STATIONS = [
     {
         "name": "站点1",
-        "agv": [-4, 0.0, 0.0],            # [x, y, yaw]
+        "agv": "LM1",                       # RoboShop 站点名称
         "arm_joints": [1.57, -0.523, 2.094, 0.0, 0.0, 0.0],  # 拍照位姿1
         "dwell": 3.0,                        # 停留秒数
     },
     {
         "name": "站点2",
-        "agv": [-5, 1.0, 1.57],
+        "agv": "LM2",                       # RoboShop 站点名称
         "arm_joints": [1.57, 0.0, 2.094, 0.0, 0.524, 0.0],   # 拍照位姿2
         "dwell": 3.0,
     },
     {
         "name": "站点3",
-        "agv": [-4, 1, 0.0],            # 回到起点
+        "agv": "LM3",                       # RoboShop 站点名称
         "arm_joints": [1.57, -0.523, 2.094, 0.0, 0.524, 0.0],    # 收回零位
         "dwell": 1.0,
     },
@@ -58,6 +62,8 @@ class DemoNode(Node):
         # Publishers
         self._agv_goal_pub = self.create_publisher(
             PoseStamped, "/inspection/agv/goal_pose", 10)
+        self._agv_goal_station_pub = self.create_publisher(
+            String, "/inspection/agv/goal_station", 10)
 
         # Status
         self._agv_status = None
@@ -107,6 +113,14 @@ class DemoNode(Node):
         # 清掉旧 status，防止读到 goal 发出前的残留 arrived=True
         self._agv_status = None
         self.get_logger().info(f"AGV goal: x={x:.2f}, y={y:.2f}, yaw={yaw:.2f}")
+
+    def send_agv_goal_by_name(self, station_name):
+        """发送 AGV 站点名称导航目标（走 RoboShop 预设路径）"""
+        msg = String()
+        msg.data = station_name
+        self._agv_goal_station_pub.publish(msg)
+        self._agv_status = None
+        self.get_logger().info(f"AGV goal_station: {station_name}")
 
     def send_arm_joints(self, positions, speed=ARM_SPEED):
         """通过 MoveToJoints service 发送关节目标（走 MoveIt 规划）"""
@@ -192,9 +206,13 @@ class DemoNode(Node):
                 self.get_logger().info("Arm -> home before moving AGV")
                 self.send_arm_joints(ARM_HOME)
 
-            # 2. AGV 去站点
-            x, y, yaw = station["agv"]
-            self.send_agv_goal(x, y, yaw)
+            # 2. AGV 去站点（支持站点名称或坐标）
+            agv_target = station["agv"]
+            if isinstance(agv_target, str):
+                self.send_agv_goal_by_name(agv_target)
+            else:
+                x, y, yaw = agv_target
+                self.send_agv_goal(x, y, yaw)
             if not self.wait_agv_arrived():
                 self.get_logger().error("AGV failed, aborting")
                 break

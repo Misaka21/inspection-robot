@@ -228,6 +228,30 @@ bool AgvClient::send_goal(
   return request(3051U, payload, &response, error);
 }
 
+// 固定路径导航（cmd 3051）：按 RoboShop 预设站点名称导航
+// AGV 会沿预设路径从 source_id 行驶到 target_id
+bool AgvClient::send_goal_by_name(
+  const std::string & target_id,
+  const std::string & source_id,
+  const double max_speed, const double max_wspeed,
+  std::string * error)
+{
+  std::string response;
+  std::string payload =
+    "{\"id\":\"" + json_escape_string(target_id) +
+    "\",\"source_id\":\"" + json_escape_string(source_id) + "\"";
+
+  if (max_speed > 0.0) {
+    payload += ",\"max_speed\":" + std::to_string(max_speed);
+  }
+  if (max_wspeed > 0.0) {
+    payload += ",\"max_wspeed\":" + std::to_string(max_wspeed);
+  }
+
+  payload += "}";
+  return request(3051U, payload, &response, error);
+}
+
 // 发送开环速度指令（cmd 2010）：直接控制 AGV 以指定速度运动 duration_ms 毫秒
 // 用于调试或手动微调，不依赖地图/导航。vx/vy 单位：m/s，w 单位：rad/s
 bool AgvClient::send_open_loop_motion(

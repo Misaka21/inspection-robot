@@ -29,7 +29,8 @@
 - `/inspection/realsense/d435/aligned_depth_to_color/image_raw` (`sensor_msgs/msg/Image`) → 深度测距
 
 发布（对 AGV）：
-- `agv/goal_pose` (`geometry_msgs/msg/PoseStamped`) → AGV 导航目标
+- `agv/goal_pose` (`geometry_msgs/msg/PoseStamped`) → AGV 导航目标（坐标）
+- `agv/goal_station` (`std_msgs/msg/String`) → AGV 站点名称导航（RoboShop 预设路径）
 
 服务客户端：
 - `arm_control/move_to_joints` (`inspection_interface/srv/MoveToJoints`) → 机械臂预设位姿
