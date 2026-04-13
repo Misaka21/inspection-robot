@@ -206,16 +206,21 @@ class DemoNode(Node):
                 self.get_logger().info("Arm -> home before moving AGV")
                 self.send_arm_joints(ARM_HOME)
 
-            # 2. AGV 去站点（支持站点名称或坐标）
-            agv_target = station["agv"]
-            if isinstance(agv_target, str):
+            # 2. AGV 去站点（支持站点名称、坐标、或 None 跳过）
+            agv_target = station.get("agv")
+            if agv_target is None:
+                self.get_logger().info("AGV skipped (no agv target)")
+            elif isinstance(agv_target, str):
                 self.send_agv_goal_by_name(agv_target)
+                if not self.wait_agv_arrived():
+                    self.get_logger().error("AGV failed, aborting")
+                    break
             else:
                 x, y, yaw = agv_target
                 self.send_agv_goal(x, y, yaw)
-            if not self.wait_agv_arrived():
-                self.get_logger().error("AGV failed, aborting")
-                break
+                if not self.wait_agv_arrived():
+                    self.get_logger().error("AGV failed, aborting")
+                    break
 
             # 3. 机械臂摆拍照位姿（通过 MoveIt 规划执行，阻塞直到完成）
             self.send_arm_joints(station["arm_joints"])
