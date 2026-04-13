@@ -6,8 +6,9 @@
   ros2 run task_coordinator demo_inspection
 
 修改点位：直接改下面的 STATIONS 列表。
-  - agv: [x, y, yaw]          单位：米、弧度，地图坐标系
-  - arm_joints: [j1..j6]      单位：弧度
+  - agv: "LM2" / [x, y, yaw] / None  站点名称/坐标/跳过
+  - arm_joints: [j1..j6]              关节角（弧度）
+  - arm_pose: {x,y,z,roll,pitch,yaw}  世界坐标位姿（与 arm_joints 二选一）
   - dwell: 停留秒数（拍照时间）
 """
 
@@ -16,16 +17,21 @@ from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import String
 from inspection_interface.msg import AgvStatus, ArmStatus
-from inspection_interface.srv import MoveToJoints
+from inspection_interface.srv import MoveToJoints, MoveToPose
 from std_srvs.srv import Trigger
 import math
 import time
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  在这里改点位！
-#  agv 支持两种格式：
+#  agv 支持三种格式：
 #    - 字符串：RoboShop 站点名称，如 "LM2"（走预设路径）
 #    - 列表：  [x, y, yaw] 坐标（自由导航）
+#    - None 或不写：跳过导航，原地拍照
+#
+#  机械臂支持两种格式（二选一）：
+#    - arm_joints: [j1..j6] 关节角弧度
+#    - arm_pose:   {x, y, z, roll, pitch, yaw} 世界坐标位姿（米/弧度）
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STATIONS = [
     {
@@ -78,6 +84,8 @@ class DemoNode(Node):
             Trigger, "/inspection/arm/enable")
         self._move_joints_client = self.create_client(
             MoveToJoints, "/inspection/arm_control/move_to_joints")
+        self._move_pose_client = self.create_client(
+            MoveToPose, "/inspection/arm_control/move_to_pose")
 
         self.get_logger().info("Demo inspection node started")
 
@@ -147,6 +155,56 @@ class DemoNode(Node):
             return False
 
         self.get_logger().info("Arm move completed")
+        return True
+
+    def send_arm_pose(self, pose_dict, speed=ARM_SPEED):
+        """通过 MoveToPose service 发送世界坐标位姿目标（走 MoveIt 规划）
+        pose_dict: {x, y, z, roll, pitch, yaw} 单位：米、弧度
+        """
+        from geometry_msgs.msg import Pose
+        x = pose_dict["x"]
+        y = pose_dict["y"]
+        z = pose_dict["z"]
+        roll = pose_dict.get("roll", 0.0)
+        pitch = pose_dict.get("pitch", 0.0)
+        yaw = pose_dict.get("yaw", 0.0)
+
+        self.get_logger().info(
+            f"Arm pose goal: x={x:.3f} y={y:.3f} z={z:.3f} "
+            f"roll={roll:.3f} pitch={pitch:.3f} yaw={yaw:.3f} speed={speed}")
+
+        if not self._move_pose_client.wait_for_service(timeout_sec=5.0):
+            self.get_logger().error("move_to_pose service not available")
+            return False
+
+        # RPY -> 四元数
+        cy, sy = math.cos(yaw / 2.0), math.sin(yaw / 2.0)
+        cp, sp = math.cos(pitch / 2.0), math.sin(pitch / 2.0)
+        cr, sr = math.cos(roll / 2.0), math.sin(roll / 2.0)
+
+        req = MoveToPose.Request()
+        req.target_pose = Pose()
+        req.target_pose.position.x = float(x)
+        req.target_pose.position.y = float(y)
+        req.target_pose.position.z = float(z)
+        req.target_pose.orientation.x = sr * cp * cy - cr * sp * sy
+        req.target_pose.orientation.y = cr * sp * cy + sr * cp * sy
+        req.target_pose.orientation.z = cr * cp * sy - sr * sp * cy
+        req.target_pose.orientation.w = cr * cp * cy + sr * sp * sy
+        req.speed = float(speed)
+
+        future = self._move_pose_client.call_async(req)
+        rclpy.spin_until_future_complete(self, future, timeout_sec=30.0)
+
+        result = future.result()
+        if result is None:
+            self.get_logger().error("move_to_pose service call timeout")
+            return False
+        if not result.success:
+            self.get_logger().error(f"move_to_pose failed: {result.message}")
+            return False
+
+        self.get_logger().info("Arm pose move completed")
         return True
 
     def wait_agv_arrived(self, timeout=60.0):
@@ -222,8 +280,13 @@ class DemoNode(Node):
                     self.get_logger().error("AGV failed, aborting")
                     break
 
-            # 3. 机械臂摆拍照位姿（通过 MoveIt 规划执行，阻塞直到完成）
-            self.send_arm_joints(station["arm_joints"])
+            # 3. 机械臂摆拍照位姿（关节角或世界坐标，通过 MoveIt 规划执行）
+            if "arm_pose" in station:
+                self.send_arm_pose(station["arm_pose"])
+            elif "arm_joints" in station:
+                self.send_arm_joints(station["arm_joints"])
+            else:
+                self.get_logger().warn("No arm target specified, skipping")
 
             # 4. 停留（模拟拍照）
             dwell = station.get("dwell", 3.0)
