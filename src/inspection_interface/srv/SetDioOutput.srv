@@ -1,0 +1,6 @@
+# Set a single digital output channel
+uint8 channel            # DO channel index (0-based)
+bool value               # true = HIGH, false = LOW
+---
+bool success
+string message

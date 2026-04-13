@@ -9,6 +9,7 @@
   - agv: "LM2" / [x, y, yaw] / None  站点名称/坐标/跳过
   - arm_joints: [j1..j6]              关节角（弧度）
   - arm_pose: {x,y,z,roll,pitch,yaw}  世界坐标位姿（与 arm_joints 二选一）
+  - dio: [{channel, value}, ...]       可选，控制 DO 输出
   - dwell: 停留秒数（拍照时间）
 """
 
@@ -17,7 +18,7 @@ from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import String
 from inspection_interface.msg import AgvStatus, ArmStatus
-from inspection_interface.srv import MoveToJoints, MoveToPose
+from inspection_interface.srv import MoveToJoints, MoveToPose, SetDioOutput
 from std_srvs.srv import Trigger
 import math
 import time
@@ -32,6 +33,9 @@ import time
 #  机械臂支持两种格式（二选一）：
 #    - arm_joints: [j1..j6] 关节角弧度
 #    - arm_pose:   {x, y, z, roll, pitch, yaw} 世界坐标位姿（米/弧度）
+#
+#  DIO（可选）：
+#    - dio: [{channel: 0, value: True}, ...] 控制 DO 输出
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STATIONS = [
     {
@@ -86,6 +90,8 @@ class DemoNode(Node):
             MoveToJoints, "/inspection/arm_control/move_to_joints")
         self._move_pose_client = self.create_client(
             MoveToPose, "/inspection/arm_control/move_to_pose")
+        self._set_dio_client = self.create_client(
+            SetDioOutput, "/inspection/dio/set_output")
 
         self.get_logger().info("Demo inspection node started")
 
@@ -207,6 +213,26 @@ class DemoNode(Node):
         self.get_logger().info("Arm pose move completed")
         return True
 
+    def set_dio_output(self, channel, value):
+        """设置单路 DO 输出（DIO 服务不可用时跳过不阻塞）"""
+        if not self._set_dio_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().warn("DIO set_output service not available, skipping")
+            return False
+        req = SetDioOutput.Request()
+        req.channel = int(channel)
+        req.value = bool(value)
+        future = self._set_dio_client.call_async(req)
+        rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
+        result = future.result()
+        if result is None:
+            self.get_logger().error("DIO set_output timeout")
+            return False
+        if not result.success:
+            self.get_logger().error(f"DIO set_output failed: {result.message}")
+            return False
+        self.get_logger().info(f"DIO: DO{channel} = {'HIGH' if value else 'LOW'}")
+        return True
+
     def wait_agv_arrived(self, timeout=60.0):
         """等待 AGV 到达"""
         self.get_logger().info("Waiting for AGV to arrive...")
@@ -288,7 +314,13 @@ class DemoNode(Node):
             else:
                 self.get_logger().warn("No arm target specified, skipping")
 
-            # 4. 停留（模拟拍照）
+            # 4. DIO 控制（可选）
+            dio_actions = station.get("dio")
+            if dio_actions:
+                for action in dio_actions:
+                    self.set_dio_output(action["channel"], action["value"])
+
+            # 5. 停留（模拟拍照）
             dwell = station.get("dwell", 3.0)
             self.get_logger().info(f"Dwelling {dwell}s (simulating capture)...")
             time.sleep(dwell)

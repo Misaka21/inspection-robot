@@ -1,0 +1,7 @@
+/inspection/dio/dio_driver:
+  ros__parameters:
+    chip_path: "/dev/gpiochip3"
+    do_lines: [0, 1, 2, 3]
+    di_lines: [8, 9, 10, 11]
+    poll_interval_ms: 50
+    use_fake: false

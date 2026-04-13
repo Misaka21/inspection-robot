@@ -36,6 +36,7 @@
 - `arm_control/move_to_joints` (`inspection_interface/srv/MoveToJoints`) → 机械臂预设位姿
 - `arm_control/move_to_pose` (`inspection_interface/srv/MoveToPose`) → 深度微调
 - `perception/detect_defect` (`std_srvs/srv/Trigger`) → 触发缺陷检测
+- `/inspection/dio/set_output` (`inspection_interface/srv/SetDioOutput`) → 控制 DO 输出
 
 服务（对外）：
 - `start` / `stop` / `pause` / `resume` / `get_status`（`inspection_interface/srv/*`）
