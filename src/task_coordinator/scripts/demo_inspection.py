@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """
-展示脚本：AGV 走预设站点，每个站点机械臂摆不同拍照位姿。
+展示脚本：AGV 静止不动，机械臂依次走到预设拍照点位，
+每到达一个点位后调用相机软触发拍照。
 
 用法：
   ros2 run task_coordinator demo_inspection
 
 修改点位：直接改下面的 STATIONS 列表。
-  - agv: "LM2" / [x, y, yaw] / None  站点名称/坐标/跳过
-  - arm_joints: [j1..j6]              关节角（弧度）
-  - arm_pose: {x,y,z,roll,pitch,yaw}  世界坐标位姿（与 arm_joints 二选一）
-  - dio: [{channel, value}, ...]       可选，控制 DO 输出
-  - dwell: 停留秒数（拍照时间）
+  - agv: None                           禁用 AGV 移动
+  - arm_joints: [j1..j6]                关节角（角度制，代码内自动转弧度）
+  - dwell: 停留秒数（等待拍照完成）
 """
 
 import rclpy
@@ -23,42 +22,67 @@ from std_srvs.srv import Trigger
 import math
 import time
 
+
+def deg2rad(joints_deg):
+    """将角度列表转为弧度列表"""
+    return [math.radians(d) for d in joints_deg]
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  在这里改点位！
-#  agv 支持三种格式：
-#    - 字符串：RoboShop 站点名称，如 "LM2"（走预设路径）
-#    - 列表：  [x, y, yaw] 坐标（自由导航）
-#    - None 或不写：跳过导航，原地拍照
-#
-#  机械臂支持两种格式（二选一）：
-#    - arm_joints: [j1..j6] 关节角弧度
-#    - arm_pose:   {x, y, z, roll, pitch, yaw} 世界坐标位姿（米/弧度）
-#
-#  DIO（可选）：
-#    - dio: [{channel: 0, value: True}, ...] 控制 DO 输出
+#  拍照点位（角度制，代码内自动转弧度）
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STATIONS = [
     {
-        "name": "站点1",
-        "agv": "LM1",                       # RoboShop 站点名称
-        "arm_joints": [1.57, -0.523, 2.094, 0.0, 0.0, 0.0],  # 拍照位姿1
-        "dwell": 3.0,                        # 停留秒数
-    },
-    {
-        "name": "站点2",
-        "agv": "LM2",                       # RoboShop 站点名称
-        "arm_joints": [1.57, 0.0, 2.094, 0.0, 0.524, 0.0],   # 拍照位姿2
+        "name": "Point_top",
+        "agv": None,
+        "arm_joints": deg2rad([265.446, 20.931, 96.415, -0.000, 104.517, -34.554]),
         "dwell": 3.0,
     },
     {
-        "name": "站点3",
-        "agv": "LM3",                       # RoboShop 站点名称
-        "arm_joints": [1.57, -0.523, 2.094, 0.0, 0.524, 0.0],    # 收回零位
-        "dwell": 1.0,
+        "name": "Point_leftback",
+        "agv": None,
+        "arm_joints": deg2rad([350.370, -26.345, 95.961, -21.888, 118.083, 45.046]),
+        "dwell": 3.0,
+    },
+    {
+        "name": "Point_left",
+        "agv": None,
+        "arm_joints": deg2rad([335.077, -34.632, 87.300, -25.541, 115.987, 43.571]),
+        "dwell": 3.0,
+    },
+    {
+        "name": "Point_leftfront",
+        "agv": None,
+        "arm_joints": deg2rad([315.713, -56.501, 49.081, -32.257, 140.881, -21.667]),
+        "dwell": 3.0,
+    },
+    {
+        "name": "Point_front",
+        "agv": None,
+        "arm_joints": deg2rad([276.198, -41.614, 50.439, -14.330, 135.078, -26.880]),
+        "dwell": 3.0,
+    },
+    {
+        "name": "Point_rightfront",
+        "agv": None,
+        "arm_joints": deg2rad([223.237, -60.490, 54.722, 25.612, 129.906, -96.151]),
+        "dwell": 3.0,
+    },
+    {
+        "name": "Point_right",
+        "agv": None,
+        "arm_joints": deg2rad([202.816, -49.899, 78.107, 24.876, 119.658, -99.837]),
+        "dwell": 3.0,
+    },
+    {
+        "name": "Point_rightback",
+        "agv": None,
+        "arm_joints": deg2rad([184.844, -43.514, 90.955, 26.160, 114.912, -100.856]),
+        "dwell": 3.0,
     },
 ]
 
-# 机械臂收回零位（每个站点拍完照后收回，AGV 再走）
+# 机械臂收回零位（每个站点拍完照后收回）
 ARM_HOME = [1.57, -0.523, 2.094, 0.0, 0.524, 0.0]
 
 # MoveIt 速度缩放因子 (0~1)，值越小越慢越平稳
@@ -92,6 +116,8 @@ class DemoNode(Node):
             MoveToPose, "/inspection/arm_control/move_to_pose")
         self._set_dio_client = self.create_client(
             SetDioOutput, "/inspection/dio/set_output")
+        self._trigger_capture_client = self.create_client(
+            Trigger, "/inspection/hikvision/trigger_capture")
 
         self.get_logger().info("Demo inspection node started")
 
@@ -233,6 +259,25 @@ class DemoNode(Node):
         self.get_logger().info(f"DIO: DO{channel} = {'HIGH' if value else 'LOW'}")
         return True
 
+    def trigger_camera(self):
+        """调用海康相机软触发服务拍照"""
+        if not self._trigger_capture_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().warn("Camera trigger_capture service not available, skipping")
+            return False
+
+        future = self._trigger_capture_client.call_async(Trigger.Request())
+        rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
+        result = future.result()
+        if result is None:
+            self.get_logger().error("Camera trigger_capture timeout")
+            return False
+        if not result.success:
+            self.get_logger().warn(f"Camera trigger_capture failed: {result.message}")
+            return False
+
+        self.get_logger().info("Camera triggered successfully")
+        return True
+
     def wait_agv_arrived(self, timeout=60.0):
         """等待 AGV 到达"""
         self.get_logger().info("Waiting for AGV to arrive...")
@@ -285,12 +330,7 @@ class DemoNode(Node):
         for i, station in enumerate(STATIONS):
             self.get_logger().info(f"\n--- {station['name']} ({i+1}/{len(STATIONS)}) ---")
 
-            # 1. 机械臂先收回零位再走（第一个站除外）
-            if i > 0:
-                self.get_logger().info("Arm -> home before moving AGV")
-                self.send_arm_joints(ARM_HOME)
-
-            # 2. AGV 去站点（支持站点名称、坐标、或 None 跳过）
+            # 1. AGV 去站点（支持站点名称、坐标、或 None 跳过）
             agv_target = station.get("agv")
             if agv_target is None:
                 self.get_logger().info("AGV skipped (no agv target)")
@@ -307,27 +347,28 @@ class DemoNode(Node):
                     break
 
             # 3. 机械臂摆拍照位姿（关节角或世界坐标，通过 MoveIt 规划执行）
+            arm_ok = False
             if "arm_pose" in station:
-                self.send_arm_pose(station["arm_pose"])
+                arm_ok = self.send_arm_pose(station["arm_pose"])
             elif "arm_joints" in station:
-                self.send_arm_joints(station["arm_joints"])
+                arm_ok = self.send_arm_joints(station["arm_joints"])
             else:
                 self.get_logger().warn("No arm target specified, skipping")
 
-            # 4. DIO 控制（可选）
+            # 4. 到位后调用相机软触发拍照
+            if arm_ok:
+                self.trigger_camera()
+
+            # 5. DIO 控制（可选）
             dio_actions = station.get("dio")
             if dio_actions:
                 for action in dio_actions:
                     self.set_dio_output(action["channel"], action["value"])
 
-            # 5. 停留（模拟拍照）
+            # 6. 停留（等待拍照/曝光完成）
             dwell = station.get("dwell", 3.0)
-            self.get_logger().info(f"Dwelling {dwell}s (simulating capture)...")
+            self.get_logger().info(f"Dwelling {dwell}s (waiting for capture)...")
             time.sleep(dwell)
-
-        # 最后收回
-        self.get_logger().info("\nFinal: arm -> home")
-        self.send_arm_joints(ARM_HOME)
 
         self.get_logger().info("=" * 40)
         self.get_logger().info("  Demo complete!")
