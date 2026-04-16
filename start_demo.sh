@@ -1,9 +1,7 @@
 #!/bin/bash
 # 一键启动 Demo 所需的 4 个终端
-# 终端 1: arm_driver (sudo)
-# 终端 2: arm_controller + RViz
-# 终端 3: hikvision_driver (触发模式)
-# 终端 4: demo_inspection
+# 终端 1: arm_driver (sudo)，启动后等待 15s
+# 终端 2-4: 各等待 3s 后顺序启动
 
 PASSWORD="mic-733ao"
 WORK_DIR="$HOME/huo_ws/inspection-robot"
@@ -22,12 +20,22 @@ titles=(
     "Demo Inspection"
 )
 
-# 创建主终端窗口
-gnome-terminal --window --title="${titles[0]}" --working-directory="$WORK_DIR" \
+# 第一个终端
+echo "Starting [${titles[0]}]..."
+gnome-terminal --title="${titles[0]}" --working-directory="$WORK_DIR" \
     -- bash -c "${cmds[0]}; exec bash"
+echo "Wait 15s for arm_driver to initialize..."
+sleep 15
 
-# 添加新标签页
+# 后续终端
 for ((i=1; i<${#cmds[@]}; i++)); do
-    gnome-terminal --tab --title="${titles[i]}" --working-directory="$WORK_DIR" \
+    echo "Starting [${titles[i]}]..."
+    gnome-terminal --title="${titles[i]}" --working-directory="$WORK_DIR" \
         -- bash -c "${cmds[i]}; exec bash"
+    if (( i < ${#cmds[@]} - 1 )); then
+        echo "Wait 3s..."
+        sleep 3
+    fi
 done
+
+echo "All terminals started."
