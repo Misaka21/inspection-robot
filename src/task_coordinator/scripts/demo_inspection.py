@@ -35,49 +35,49 @@ STATIONS = [
     {
         "name": "Point_top",
         "agv": None,
-        "arm_joints": deg2rad([265.446, 20.931, 96.415, -0.000, 104.517, -34.554]),
+        "arm_joints": deg2rad([-94.553, 20.932, 96.416, -0.000, 104.517, -34.554]),
         "dwell": 3.0,
     },
     {
         "name": "Point_leftback",
         "agv": None,
-        "arm_joints": deg2rad([350.370, -26.345, 95.961, -21.888, 118.083, 45.046]),
+        "arm_joints": deg2rad([-9.630, -26.345, 95.961, -21.888, 118.083, 45.046]),
         "dwell": 3.0,
     },
     {
         "name": "Point_left",
         "agv": None,
-        "arm_joints": deg2rad([335.077, -34.632, 87.300, -25.541, 115.987, 43.571]),
+        "arm_joints": deg2rad([-24.924, -34.632, 87.300, -25.541, 115.987, 43.571]),
         "dwell": 3.0,
     },
     {
         "name": "Point_leftfront",
         "agv": None,
-        "arm_joints": deg2rad([315.713, -56.501, 49.081, -32.257, 140.881, -21.667]),
+        "arm_joints": deg2rad([-44.288, -56.501, 49.081, -32.257, 140.881, -21.667]),
         "dwell": 3.0,
     },
     {
         "name": "Point_front",
         "agv": None,
-        "arm_joints": deg2rad([276.198, -41.614, 50.439, -14.330, 135.078, -26.880]),
+        "arm_joints": deg2rad([-83.802, -41.614, 50.439, -14.330, 135.078, -26.880]),
         "dwell": 3.0,
     },
     {
         "name": "Point_rightfront",
         "agv": None,
-        "arm_joints": deg2rad([223.237, -60.490, 54.722, 25.612, 129.906, -96.151]),
+        "arm_joints": deg2rad([-136.763, -60.490, 54.722, 25.612, 129.906, -96.151]),
         "dwell": 3.0,
     },
     {
         "name": "Point_right",
         "agv": None,
-        "arm_joints": deg2rad([202.816, -49.899, 78.107, 24.876, 119.658, -99.837]),
+        "arm_joints": deg2rad([-157.184, -49.899, 78.107, 24.876, 119.658, -99.837]),
         "dwell": 3.0,
     },
     {
         "name": "Point_rightback",
         "agv": None,
-        "arm_joints": deg2rad([184.844, -43.514, 90.955, 26.160, 114.912, -100.856]),
+        "arm_joints": deg2rad([-175.157, -43.514, 90.955, 26.160, 114.912, -100.856]),
         "dwell": 3.0,
     },
 ]
@@ -86,7 +86,7 @@ STATIONS = [
 ARM_HOME = [1.57, -0.523, 2.094, 0.0, 0.524, 0.0]
 
 # MoveIt 速度缩放因子 (0~1)，值越小越慢越平稳
-ARM_SPEED = 0.1
+ARM_SPEED = 0.4
 
 
 class DemoNode(Node):
