@@ -327,51 +327,62 @@ class DemoNode(Node):
         if not self.enable_arm():
             return
 
-        for i, station in enumerate(STATIONS):
-            self.get_logger().info(f"\n--- {station['name']} ({i+1}/{len(STATIONS)}) ---")
+        round_num = 1
+        while rclpy.ok():
+            self.get_logger().info(f"\n{'='*40}")
+            self.get_logger().info(f"  Round {round_num} started")
+            self.get_logger().info(f"{'='*40}")
 
-            # 1. AGV 去站点（支持站点名称、坐标、或 None 跳过）
-            agv_target = station.get("agv")
-            if agv_target is None:
-                self.get_logger().info("AGV skipped (no agv target)")
-            elif isinstance(agv_target, str):
-                self.send_agv_goal_by_name(agv_target)
-                if not self.wait_agv_arrived():
-                    self.get_logger().error("AGV failed, aborting")
-                    break
-            else:
-                x, y, yaw = agv_target
-                self.send_agv_goal(x, y, yaw)
-                if not self.wait_agv_arrived():
-                    self.get_logger().error("AGV failed, aborting")
-                    break
+            for i, station in enumerate(STATIONS):
+                self.get_logger().info(f"\n--- {station['name']} ({i+1}/{len(STATIONS)}) ---")
 
-            # 3. 机械臂摆拍照位姿（关节角或世界坐标，通过 MoveIt 规划执行）
-            arm_ok = False
-            if "arm_pose" in station:
-                arm_ok = self.send_arm_pose(station["arm_pose"])
-            elif "arm_joints" in station:
-                arm_ok = self.send_arm_joints(station["arm_joints"])
-            else:
-                self.get_logger().warn("No arm target specified, skipping")
+                # 1. AGV 去站点（支持站点名称、坐标、或 None 跳过）
+                agv_target = station.get("agv")
+                if agv_target is None:
+                    self.get_logger().info("AGV skipped (no agv target)")
+                elif isinstance(agv_target, str):
+                    self.send_agv_goal_by_name(agv_target)
+                    if not self.wait_agv_arrived():
+                        self.get_logger().error("AGV failed, aborting")
+                        return
+                else:
+                    x, y, yaw = agv_target
+                    self.send_agv_goal(x, y, yaw)
+                    if not self.wait_agv_arrived():
+                        self.get_logger().error("AGV failed, aborting")
+                        return
 
-            # 4. 到位后调用相机软触发拍照
-            if arm_ok:
-                self.trigger_camera()
+                # 3. 机械臂摆拍照位姿（关节角或世界坐标，通过 MoveIt 规划执行）
+                arm_ok = False
+                if "arm_pose" in station:
+                    arm_ok = self.send_arm_pose(station["arm_pose"])
+                elif "arm_joints" in station:
+                    arm_ok = self.send_arm_joints(station["arm_joints"])
+                else:
+                    self.get_logger().warn("No arm target specified, skipping")
 
-            # 5. DIO 控制（可选）
-            dio_actions = station.get("dio")
-            if dio_actions:
-                for action in dio_actions:
-                    self.set_dio_output(action["channel"], action["value"])
+                # 4. 到位后调用相机软触发拍照
+                if arm_ok:
+                    self.trigger_camera()
 
-            # 6. 停留（等待拍照/曝光完成）
-            dwell = station.get("dwell", 3.0)
-            self.get_logger().info(f"Dwelling {dwell}s (waiting for capture)...")
-            time.sleep(dwell)
+                # 5. DIO 控制（可选）
+                dio_actions = station.get("dio")
+                if dio_actions:
+                    for action in dio_actions:
+                        self.set_dio_output(action["channel"], action["value"])
+
+                # 6. 停留（等待拍照/曝光完成）
+                dwell = station.get("dwell", 3.0)
+                self.get_logger().info(f"Dwelling {dwell}s (waiting for capture)...")
+                time.sleep(dwell)
+
+            self.get_logger().info(f"\n{'='*40}")
+            self.get_logger().info(f"  Round {round_num} complete")
+            self.get_logger().info(f"{'='*40}")
+            round_num += 1
 
         self.get_logger().info("=" * 40)
-        self.get_logger().info("  Demo complete!")
+        self.get_logger().info("  Demo stopped")
         self.get_logger().info("=" * 40)
 
 
