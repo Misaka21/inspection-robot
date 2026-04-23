@@ -1,9 +1,11 @@
 # inspection-robot 环境安装与编译记录
 
 - 机器: `172.16.25.15` (`mic-733ao`)
-- 日期: `2026-03-17`
+- 日期: `2026-03-17`（原始记录）/ `2026-04-23`（抓取方向依赖补充）
 - 系统: `Ubuntu 22.04`
 - 工作区: `~/inspection-robot`
+
+> 注：本文档只涉及**环境安装与编译**，与业务方向无关。`inspection-robot` 当前方向为复合机器人抓取（非巡检），详见 `README.md`、`CLAUDE.md`。
 
 ## 1. 基础环境检查
 
@@ -74,6 +76,29 @@ sudo apt-get install -y ros-humble-moveit
 ```
 
 rosdep 后续也自动安装了 `realsense2_camera`、`foxglove_bridge`、`image_transport_plugins` 等相关依赖。
+
+### 3.1 抓取方向新增依赖（2026-04）
+
+抓取场景需要额外的系统包与 Python 包：
+
+```bash
+# Pilz industrial motion planner（arm_controller PRE_GRASP→GRASP 直线段）
+sudo apt-get install -y ros-humble-pilz-industrial-motion-planner
+
+# Python 感知栈（grasp_perception）
+pip install ultralytics opencv-python open3d
+
+# 手眼标定工具（可选，一次性）
+# easy_handeye2 可从源码安装：https://github.com/marcoesposito1988/easy_handeye2
+```
+
+`dio_driver` 使用 `libgpiod`（Ubuntu 22.04 默认有 v2）：
+
+```bash
+sudo apt-get install -y python3-libgpiod
+# 非 root 运行需加入 gpio 组
+sudo usermod -aG gpio $USER
+```
 
 ## 4. 编译路径问题与解决
 

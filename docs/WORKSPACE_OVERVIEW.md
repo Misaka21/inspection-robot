@@ -1,18 +1,20 @@
 # 工作区总览（端到端约定）
 
-本文档从系统全局视角约束"点位语义、导航地图、坐标系与标定、取图结果回显"等关键接口与实现边界，避免各模块 README 各写各的导致漂移。
+本文档从系统全局视角约束"抓取任务、导航地图、坐标系与标定、结果回显"等关键接口与实现边界，避免各模块 README 各写各的导致漂移。
+
+> **课题方向**：复合移动机器人抓取（非巡检）。仓库名 `inspection-robot` 与 `inspection_*` 包名是历史遗留。见 `README.md` / `CLAUDE.md`。
 
 实现落地与缺口清单见：`docs/IMPLEMENTATION_STATUS.md`。
 
 ## 1. 仓库分工（必须一致）
 
 - `inspection-site/`（独立仓库）
-  - React 前端（Engineer/Operator 界面），对接 `inspection_gateway`（REST API + WebSocket）。
-  - 不直接连 ROS2。
-  - 构建产物部署到 `inspection_gateway/frontend/dist/`，由 FastAPI 托管。
+  - React 前端（Operator 界面为主），对接 `inspection_gateway`（REST API + WebSocket）
+  - 不直接连 ROS2
+  - 构建产物部署到 `inspection_gateway/frontend/dist/`，由 FastAPI 托管
 - `inspection-robot/`（本仓库）
-  - 机器人端 ROS2 工作空间：驱动/控制/规划/检测/编排。
-  - 部署 `inspection_gateway`（建议在 AGX 上），对外提供 REST/WS 服务，对内调用 ROS2 节点。
+  - 机器人端 ROS2 工作空间：驱动 / 控制 / 感知 / 夹爪 / 编排
+  - 部署 `inspection_gateway`（运行在 Jetson Orin AGX），对外提供 REST/WS 服务，对内调用 ROS2 节点
   - 网关代码落点：`src/inspection_gateway/`（ROS2 包，FastAPI server + ROS2 bridge + store）
   - API 契约的唯一事实来源：`inspection_gateway/api/models.py`（Pydantic v2）
 
@@ -21,49 +23,64 @@
 整体链路：
 
 ```
-inspection-site (React) ← REST/WS → inspection_gateway (FastAPI) → task_coordinator (ROS2) → agv_driver/arm_controller/hikvision_driver/...
+inspection-site (React) ← REST/WS → inspection_gateway (FastAPI)
+    → task_coordinator (ROS2)
+        → agv_driver / arm_controller / grasp_perception / gripper_driver / ...
 ```
 
-## 2. 端到端流程（V1）
+## 2. 端到端流程（抓取 V1）
 
-### 2.1 Engineer（配置与规划）
+### 2.1 Operator（执行与结果）
 
-1. 前端上传 CAD：`POST /api/v1/cad/upload` → `model_id`
-2. 前端在 CAD 表面"点选"检测点位：
-   - 每个点位包含：`SurfacePoint.position + SurfacePoint.normal`
-   - "画笔"仅用于选点，不存在半径/强度
-3. 前端设置拍摄配置（整条任务统一）：
-   - `CaptureConfig.focus_distance_m` 固定工作距离（工业相机对焦距离）
-   - `CaptureConfig.max_tilt_from_normal_deg` 等角度约束（用于后续逆解/规划约束）
-4. 前端如有需要逐点调相机角度：
-   - 默认 `ViewHint.view_direction = -SurfacePoint.normal`
-   - 可调 `ViewHint.roll_deg`（绕光轴旋转，控制"图像上方向"）
-5. 前端下发点位：`POST /api/v1/targets`
-6. 前端预览：
-   - 站位点与机械臂预设来自 YAML 配置文件（配置驱动，不再由算法实时规划）
-   - 导航路径折线：连接各站位点坐标（可仅用于显示下采样）
-
-### 2.2 Operator（执行与结果）
-
-1. `POST /api/v1/tasks` （触发 StartInspection，站位配置来自 YAML）
-2. 前端订阅状态流：`WS /ws` → `system_state`（AGV/机械臂/进度）
-3. 前端订阅事件流：`WS /ws` → `inspection_event`（抓拍/缺陷/告警）[待实现]
-4. 原图下载：
+1. 选择或录入任务参数：
+   - 目标物体类别 `object_class`（可选；不填则感知使用"任意可抓取物体"策略）
+   - 抓取点位 / 放置点位（从 yaml 模板选，或自定义）
+2. `POST /api/v1/tasks` 触发抓取（`StartGrasp`）
+3. 前端订阅：`WS /ws`
+   - `system_state` 实时状态（当前阶段、AGV/Arm 状态）
+   - `grasp_event` 结构化事件（PERCEIVED / GRASPED / PLACED / FAILED…）【待实现】
+4. 观察图/抓取瞬间图：
    - 优先用事件里的 `thumbnail_jpeg` 做实时预览
    - 需要原图时 `GET /api/v1/media/{media_id}`
-5. 任务结束后按点位/任务回看：`GET /api/v1/tasks/{id}/captures` [待实现]
+5. 任务结束后按任务回看：`GET /api/v1/tasks/{id}/captures`【待实现】
 
-## 3. "路径折线"能否获取？
+### 2.2 Engineer（配置）
 
-可以。V1 的"路径折线"定义为：**YAML 配置文件中定义的站位点按顺序连线**，数据来自站位配置（配置驱动，不再需要算法实时规划）。
+当前抓取 V1**不需要 CAD 表面选点**这种流程（那是巡检/检测才需要）。Engineer 主要工作是：
 
-注意：这不是底盘内部规划器的细粒度轨迹（如果未来需要"真实路径采样点"，再单独扩展接口或对接底盘能力）。
+- 新工件类别 → 采集 YOLOv8 数据集 → 训练 → 权重更新
+- 每类工件的默认抓取姿态写到 `grasp_perception/config/class_grasp_poses.yaml`
+- AGV 抓取/放置点位写到 `task_coordinator/config/grasp_tasks.yaml`
+
+> 可选升级：走 FoundationPose 6D 位姿路径时，仍需要 CAD → 保留 `/cad/upload` 接口即可；但不再有"在 CAD 表面画笔选点"那一套。
+
+## 3. 抓取任务配置
+
+`task_coordinator/config/grasp_tasks.yaml` 示例：
+
+```yaml
+tasks:
+  demo_pick_screw:
+    object_class: "screw_m8"
+    pick:
+      use_agv: true
+      agv_station: "PICK_01"        # 或 agv_pose: {x, y, yaw}
+      arm_observe_joints: [0.0, -0.5, 1.2, 0.0, 0.8, 0.0]
+      approach_offset_m: 0.10       # pre-grasp 距抓取点高度
+      velocity_scaling: 0.2
+    place:
+      use_agv: true
+      agv_station: "PLACE_01"
+      arm_place_joints: [0.0, 0.3, 0.8, 0.0, 1.1, 0.0]
+      release_offset_m: 0.05        # 松开前抬起距离
+    recovery:
+      max_perceive_retries: 3
+      max_grasp_retries: 2
+```
 
 ## 4. 导航地图 GetNavMap（地图在 AGV 上）
 
-结论：AGV 侧存在地图与查询/下载接口，网关可以自动获取并缓存后返回给前端。
-
-推荐实现策略（对齐"厂商协议仅在 driver 内使用"的分层原则）：
+AGV 侧存在地图与查询/下载接口，网关自动获取并缓存后返回给前端。推荐实现策略（对齐"厂商协议仅在 driver 内使用"的分层原则）：
 
 1. `agv_driver` 封装厂商 TCP API（命令号/协议细节仅在 driver 内部），对外暴露 ROS2 service
 2. `inspection_gateway` 通过 ROS2 service 向 `agv_driver` 请求"地图元信息 + 底图"，并做缓存（key 建议用 `map_name + md5`）
@@ -73,7 +90,7 @@ inspection-site (React) ← REST/WS → inspection_gateway (FastAPI) → task_co
 
 ### 4.1 地图坐标与像素坐标
 
-统一约定：**AGV 位姿、规划点位、机械臂基座/末端位姿都使用同一个 `map` 坐标系（米/弧度）**。
+统一约定：**AGV 位姿、抓取/放置站位、机械臂基座都使用同一个 `map` 坐标系（米/弧度）**。
 
 `GetNavMap` 返回的 `origin` 是像素 `(u=0,v=0)` 在 `map` 坐标系里的位置；前端投影公式：
 
@@ -82,34 +99,72 @@ inspection-site (React) ← REST/WS → inspection_gateway (FastAPI) → task_co
 
 其中 `(x,y)` 是任意 `Pose2D` 的 `map` 坐标。
 
-## 5. 坐标系与标定（决定"能否对齐"）
+## 5. 坐标系与标定（决定"能否抓中"）
 
 ### 5.1 最小 TF 链
 
-要实现"导航 + 机械臂位姿 + 相机取图姿态"在同一视图对齐，机器人端必须具备最小 TF 链：
+```
+map
+ └─ base_link (AGV)                    ← agv_driver 发布 map -> base_link
+      └─ arm_base                        ← 静态标定（yaml，必须补齐）
+           └─ elfin_link1..6              ← URDF + joint_states 正解
+                └─ tool0
+                     ├─ gripper_tip       ← 静态 TF（气动夹爪末端 offset）
+                     └─ camera_link       ← 手眼标定（tool0 → camera_link，yaml）
+                          └─ camera_color_optical_frame ← realsense2_camera 自发
+```
 
-- `map -> base_link`：由 `agv_driver` 发布
-- `base_link -> arm_base`：机械臂安装位姿（静态标定，**当前缺失，需补充**）
-- `arm_base -> tcp`：由机械臂 URDF/关节状态正解得到
-- `tcp -> camera`：相机外参（当前由 `drivers.launch.py` 中 `tool0 -> hikvision_frame` 静态 TF 提供）
+### 5.2 手眼标定（抓取精度上限的关键）
 
-### 5.2 相机角度能否传给机械臂？
+- 工具：`easy_handeye2` + ChArUco 板
+- 标定流程：把 ChArUco 板固定在工作台；机械臂带相机拍不同姿态 N 次；求解 `T_tool0_camera`
+- 结果存 `inspection_bringup/config/handeye_calib.yaml`，系统启动时通过 `static_transform_publisher` 广播 `tool0 → camera_link`
+- 验证：RViz 下叠加 PointCloud 和 URDF，工作台的点云与工作台实物位置对齐（误差 < 5mm 为可接受）
 
-能。前端通过 `InspectionTarget.view` 下发"相机拍摄角度"（方向 + roll），网关在规划/执行阶段用相机外参把"相机目标位姿"转换成"TCP 目标位姿"，再做逆解得到 `arm_joint_goal`。
+### 5.3 抓取位姿变换链
 
-典型计算（概念层面）：
+感知输出位姿在 `camera_color_optical_frame`（`grasp_perception` 写入 response.frame_id）；`task_coordinator` 执行时：
 
-- `camera_pos = surface_pos - view_direction * focus_distance_m`
-- `T_map_tcp_goal = T_map_camera_goal * inverse(T_tcp_camera)`
+```
+T_armbase_grasp = T_armbase_base * T_base_tool0 * T_tool0_camera * T_camera_grasp
+```
 
-其中 `T_tcp_camera` 就是"相机相对末端"的外参配置。
+其中：
+- `T_armbase_base`：`arm_base → base_link` 的逆（静态 TF）
+- `T_base_tool0`：URDF + 当前关节角正解
+- `T_tool0_camera`：手眼标定结果
+- `T_camera_grasp`：感知模块输出
 
-### 5.3 外参在哪里配？
+实现时直接用 `tf2` buffer 查一次 `camera_color_optical_frame → arm_base` 即可，不用手算。
 
-建议唯一来源：URDF（固定关节）或静态 TF（带参数文件），禁止散落在多个节点里硬编码。
+## 6. 结果回显与事件流
 
-当前仓库里存在示例静态 TF（注意 frame 名称需要与 URDF 一致）：
+### 6.1 拍照点
 
-- `src/inspection_bringup/launch/drivers.launch.py`
+建议的事件 / 抓拍时机（都走 `capture_manager`，落盘成 `media_id`）：
 
-如果 URDF 的末端 link 不是 `tool0`，需要统一改成真实末端（例如 `elfin_end_link`）或在 URDF 增加 `tool0` 别名 link。
+| 时机 | 事件类型 | 内容 |
+|------|---------|------|
+| 到观察位后 CAPTURE_RGBD | `OBSERVED` | 观察图（RGB） |
+| PERCEIVE 成功 | `PERCEIVED` | 观察图 + 候选抓取位姿标注图 |
+| GRASP 完成 LIFT 后 | `GRASPED` | 抓起后的观察图（验证是否真夹到） |
+| PLACE 完成 | `PLACED` | 放置点位观察图 |
+| 任何失败 | `FAILED` | 失败上下文 |
+
+### 6.2 WebSocket 协议
+
+- `system_state`：实时状态（`TaskStatus`，含阶段、AGV/Arm/Gripper 状态、进度）
+- `grasp_event`：结构化事件（`GraspEvent`，含 `type`、`media_id`、时间戳、上下文）
+
+两个类型通过 `WsEnvelope.type` 区分。
+
+## 7. 旧巡检概念的下线清单
+
+原巡检流程里的以下概念在抓取场景中**不再使用**（保留在 models.py 中仅为溯源，前端已无对应 UI）：
+
+- `POST /cad/upload` + `SurfacePoint/InspectionTarget`（CAD 表面选点）
+- `InspectionPath` / `InspectionPoint`（路径/点位预览，改为 `grasp_tasks.yaml` 配置驱动）
+- `defect_detector` 调用与 `DefectInfo`
+- `ViewHint.focus_distance_m` 等拍摄配置（抓取场景不需要手动定焦距）
+
+> 实现上优先路径：**先留字段不用**，等抓取方向稳定后再从 models.py 和前端删减。
