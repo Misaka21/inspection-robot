@@ -1,5 +1,13 @@
 # hikvision_driver/CLAUDE.md
 
+> ⚠️ **状态：巡检场景主相机，抓取方向默认不启用（保留作为备用通用工业相机驱动）。**
+>
+> 抓取方向的主相机是 **RealSense D435（eye-in-hand）**，由 `realsense_driver` 驱动。本包保留作为：
+> - 原 8 点位巡检 demo 的依赖（`demo操作指南.md` 历史流程）
+> - 未来若有需要宽视场/高分辨率/外部触发同步的工业相机做辅助视觉时复用
+>
+> 抓取场景下 `system.launch.py` 默认 `use_hikvision:=false`。
+
 本文件约束 `hikvision_driver` 的分层与数据流，目标是：**MV SDK 调用与 ROS 逻辑解耦**，并保证触发拍照与监控线程可维护。
 
 ## 1. 包职责与边界
@@ -10,8 +18,9 @@
 - 提供 `trigger_capture` 触发服务（触发模式）
 
 不负责：
-- 缺陷检测算法（`defect_detector`）
+- 缺陷检测算法（`defect_detector`，巡检场景已不再使用）
 - 媒体落盘/媒体 id（应由网关或独立 capture_manager 管）
+- 抓取感知（由 `grasp_perception` 基于 RealSense 完成）
 
 ## 2. Public ROS API（稳定接口）
 
@@ -60,13 +69,14 @@ flowchart LR
   Worker -->|publish image_raw| ROS["ROS graph"]
 ```
 
-## 5. 与“结果回显/媒体”对齐的建议
+## 5. 与"结果回显/媒体"对齐的建议
 
 driver 只负责把图像变成 ROS 消息；不要在 driver 内做文件管理。
 
-建议新增（后续实现）：
-- `capture_manager`：订阅 `image_raw`，按 task/point_id 落盘并生成 `media_id`
-- `inspection_gateway`：通过 `DownloadMedia/ListCaptures` 对外提供访问
+若抓取场景里有"高分辨率辅助图"需求（例如观察位再拉一张工业相机图做记录），建议：
+- 由 `task_coordinator` 触发 `trigger_capture`
+- `capture_manager`（规划中）订阅 `image_raw` 落盘成 `media_id`
+- `inspection_gateway` 通过 `DownloadMedia/ListCaptures` 对外提供访问
 
 ## 6. 文档与 TODO 维护（必须）
 
