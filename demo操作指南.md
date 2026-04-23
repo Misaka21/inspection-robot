@@ -1,4 +1,18 @@
-# 机械臂定点拍照 Demo 操作指南
+# 机械臂定点拍照 Demo 操作指南（巡检场景遗留）
+
+> ⚠️ **文档状态：遗留 / 历史参考**
+>
+> 本 demo 属于原"巡检"方向（8 点位机械臂预设位姿 + 工业相机拍照）。课题已于 **2026-04-23** 调整为**复合机器人抓取**，当前 demo 不再是主攻方向。
+>
+> 代码（`src/task_coordinator/scripts/demo_inspection.py`、`src/inspection_bringup/scripts/start_demo.sh`）暂时保留供回溯参考，但新开发工作请看：
+>
+> - 新方向总纲：`README.md`、`CLAUDE.md`
+> - 新 demo 说明（规划中）：`docs/GRASP_DEMO.md`
+> - 任务清单：`TODO.md`
+>
+> 如需继续运行旧 demo，请按下方原说明操作；但其依赖的 `hikvision_driver` 和 `task_coordinator` 的"8 点位循环"状态机在抓取主线推进后可能不再兼容。
+
+---
 
 ## 一、前置说明
 
