@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## 项目概述
 
@@ -123,8 +123,7 @@ sudo apt install ros-humble-realsense2-camera ros-humble-librealsense2
 sudo apt install ros-humble-moveit
 
 # Python 感知栈（grasp_perception 规划使用）
-pip install ultralytics opencv-python open3d   # YOLOv8 + RGBD 处理
-# 6D 位姿估计升级路径（可选）：FoundationPose / MegaPose
+pip install ultralytics opencv-python open3d
 ```
 
 ## 分包架构约定（避免代码堆在 Node 回调里）
@@ -138,24 +137,14 @@ pip install ultralytics opencv-python open3d   # YOLOv8 + RGBD 处理
 
 每个包的"职责边界/数据流/推荐文件结构"请看对应的：
 
-- `src/<package_name>/CLAUDE.md`
+- `src/<package_name>/AGENTS.md`（若无则参考 `src/<package_name>/CLAUDE.md`）
 
 ## 抓取任务 pipeline（由 `task_coordinator` 编排）
 
 ```
-IDLE
- └─ NAV_TO_PICK          AGV 到抓取点位（可选：场景固定时可跳过）
-     └─ ARM_TO_OBSERVE    机械臂到观察位，让末端相机完整看到工作台
-         └─ CAPTURE_RGBD  RealSense 同步抓取 RGB + Depth + 内参
-             └─ PERCEIVE  grasp_perception 输出 grasp_pose(camera_frame)
-                 └─ TRANSFORM_IK  TF 变换到 arm base_link + MoveIt 可达性
-                     └─ PRE_GRASP  Pilz LIN 到抓取点上方 ~10cm
-                         └─ GRASP       Pilz LIN 直线下压到 grasp_pose
-                             └─ CLOSE_GRIPPER  dio_driver 闭合气动电磁阀
-                                 └─ LIFT       上升 ~10cm
-                                     └─ NAV_TO_PLACE（可选）
-                                         └─ PLACE / OPEN_GRIPPER / HOME
-                                             └─ IDLE
+IDLE → NAV_TO_PICK → ARM_TO_OBSERVE → CAPTURE_RGBD → PERCEIVE
+  → TRANSFORM_IK → PRE_GRASP → GRASP → CLOSE_GRIPPER → LIFT
+  → NAV_TO_PLACE（可选）→ PLACE → OPEN_GRIPPER → HOME → IDLE
 
 任一阶段失败 → RECOVERY（重拍/重规划 N 次 → 超限终止并发事件）
 ```
@@ -167,7 +156,7 @@ IDLE
 - 仓库根 `TODO.md` 是"还要做什么"的单一事实来源；新增/变更任务必须写这里
 - 完成任务必须勾选，并在提交信息里注明验证方式（真机/仿真/回放/单测）
 - 修改 public ROS API 或端到端数据流时，必须同步更新：
-  - 相关包的 `src/<package>/CLAUDE.md` / `README.md`
+  - 相关包的 `src/<package>/AGENTS.md` / `README.md`
   - `docs/WORKSPACE_OVERVIEW.md` / `docs/ARCHITECTURE.md`（按需）
   - `TODO.md`
 
@@ -264,7 +253,7 @@ Closes: #234, #235
 - 如有破坏性变更,必须明确标注并说明影响
 - 优先使用常用类型: feat, fix, docs, refactor, perf
 - **提交信息保持简洁，严禁添加任何自动生成标记**：
-  - 禁止添加 "🤖 Generated with [Claude Code](https://claude.com/claude-code)"
-  - 禁止添加 "Co-Authored-By: Claude <noreply@anthropic.com>"
+  - 禁止添加 "🤖 Generated with [Codex](https://Codex.com/Codex)"
+  - 禁止添加 "Co-Authored-By: Codex <noreply@anthropic.com>"
   - 禁止添加任何其他AI工具生成的标记
   - 只包含人为编写的提交内容
