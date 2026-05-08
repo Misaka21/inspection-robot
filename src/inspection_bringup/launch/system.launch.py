@@ -1,5 +1,4 @@
 from launch import LaunchDescription
-from launch_ros.actions import Node
 from launch.actions import IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from ament_index_python.packages import get_package_share_directory
@@ -68,16 +67,6 @@ def generate_launch_description():
         }.items(),
     )
 
-    # HMI <-> ROS2 gateway (FastAPI REST/WS)
-    inspection_gateway_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(get_package_share_directory('inspection_gateway'), 'launch', 'inspection_gateway.launch.py')
-        ),
-        launch_arguments={
-            'namespace': '/inspection',
-        }.items(),
-    )
-    
     return LaunchDescription([
         drivers_launch,
         agv_launch,
@@ -85,12 +74,4 @@ def generate_launch_description():
         arm_controller_launch,
         defect_detector_launch,
         task_coordinator_launch,
-        inspection_gateway_launch,
-        
-        # Foxglove Bridge（用于可视化调试）
-        Node(
-            package='foxglove_bridge',
-            executable='foxglove_bridge',
-            name='foxglove_bridge',
-        ),
     ])
