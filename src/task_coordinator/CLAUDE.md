@@ -1,185 +1,127 @@
 # task_coordinator/CLAUDE.md
 
-本文件约束 `task_coordinator` 的架构与数据流。
-
-> **方向变更（2026-04-23）**：从"巡检八点位循环"改为"复合机器人抓取 pipeline"。原 `MOVING_TO_STATION → ARM_PRESET → DEPTH_ADJUST → CAPTURING` 状态机已废弃；原 YAML 格式（`inspection_stations`）已不适用。详情见 `TODO.md`、`docs/ARCHITECTURE.md`。
-> 旧的 8 点位 demo 脚本（`scripts/demo_inspection.py`）暂时保留用于回溯，但系统主路径不再使用。
+本文件约束 `task_coordinator` 的架构与数据流。当前主线为**大型工件视觉检测/巡检**，不是抓取 pipeline。
 
 ## 1. 包职责与边界
 
 负责：
-- 抓取任务状态机（IDLE → NAV_TO_PICK → ARM_TO_OBSERVE → CAPTURE_RGBD → PERCEIVE → TRANSFORM_IK → PRE_GRASP → GRASP → CLOSE_GRIPPER → LIFT → NAV_TO_PLACE → PLACE → OPEN_GRIPPER → HOME → IDLE）
-- YAML 配置驱动的任务模板执行（pick/place 点位、观察位、目标类别）
-- 联锁门控（AGV 到位 → 允许观察 → 感知成功 → IK 通过 → 机械臂动作 → 夹爪控制）
-- 感知→坐标变换→可达性筛选的串联调度
-- 发布系统状态快照 `SystemState`（供网关/HMI 订阅）
-- 发布结构化抓取事件 `GraspEvent`（供网关推 WebSocket）【P2 实现】
+
+- 巡检任务状态机：`IDLE -> MOVING_TO_STATION -> ARM_PRESET -> DEPTH_ADJUST -> CAPTURING -> 下一站/COMPLETED`
+- YAML 配置驱动的站位序列执行。
+- 联锁门控：AGV 到位后才允许机械臂动作；机械臂到预设位后才允许深度微调；工作距满足容差后才拍照检测。
+- RealSense 深度图工作距估计与微调调度。
+- 触发海康工业相机拍照。
+- 触发 `defect_detector` 并订阅缺陷结果。
+- 发布系统状态快照 `SystemState`。
 
 不负责：
-- 硬件通信（drivers）
-- MoveIt 规划算法本身（`arm_controller`）
-- 抓取位姿生成算法（`grasp_perception`）
-- 气动电磁阀 DO 控制（`gripper_driver` + `dio_driver`）
-- 对外 REST/WS API（`inspection_gateway`）
+
+- AGV、机械臂、相机硬件通信。
+- MoveIt2 规划细节。
+- 缺陷检测模型推理细节。
+- 网页/REST/WS 接口。
+- fake driver 仿真。
 
 ## 2. Public ROS API
 
 默认命名空间：`/inspection`
 
 发布：
-- `state` (`inspection_interface/msg/SystemState`) — 实时状态（phase + agv/arm/gripper status + progress）
-- `events` (`inspection_interface/msg/GraspEvent`) — 结构化事件【P2】
+
+- `state` (`inspection_interface/msg/SystemState`)
+- `agv/goal_pose` (`geometry_msgs/msg/PoseStamped`)
+- `agv/goal_station` (`std_msgs/msg/String`，可选)
 
 订阅：
-- `agv/status` (`inspection_interface/msg/AgvStatus`) → AGV 到位门控
-- `arm/status` (`inspection_interface/msg/ArmStatus`) → 机械臂状态
-- `gripper/status` (`inspection_interface/msg/GripperStatus`) → 夹爪状态【新】
-- `realsense/d435/color/image_raw`、`.../aligned_depth_to_color/image_raw`、`.../color/camera_info`（可选：用于抓拍落盘）
 
-发布（对 AGV）：
-- `agv/goal_pose` (`geometry_msgs/msg/PoseStamped`) → AGV 导航目标（坐标）
-- `agv/goal_station` (`std_msgs/msg/String`) → AGV 站点名称导航（厂商预设路径）
+- `agv/status` (`inspection_interface/msg/AgvStatus`)
+- `arm/status` (`inspection_interface/msg/ArmStatus`)
+- `/inspection/realsense/d435/aligned_depth_to_color/image_raw`
+- `/inspection/realsense/d435/color/camera_info`（增强微调需要）
+- `perception/result` (`inspection_interface/msg/DefectInfo`)
 
 服务客户端：
-- `arm_control/move_to_pose` (`inspection_interface/srv/MoveToPose`) → 包含 `planner_id` 字段，支持 OMPL / PILZ_LIN
-- `arm_control/move_to_joints` (`inspection_interface/srv/MoveToJoints`) → 观察位、HOME
-- `grasp/perceive_grasp` (`inspection_interface/srv/PerceiveGrasp`) → 感知抓取候选【新】
-- `gripper/open` / `gripper/close` (`std_srvs/srv/Trigger`)【新】
 
-服务（对外）：
-- `start` (`inspection_interface/srv/StartGrasp`【新】，或扩充原 `StartInspection.srv`) / `stop` / `pause` / `resume` / `get_status`
+- `arm_control/move_to_joints` (`inspection_interface/srv/MoveToJoints`)
+- `arm_control/move_to_pose` (`inspection_interface/srv/MoveToPose`)
+- `hikvision/trigger_capture` (`std_srvs/srv/Trigger`)
+- `perception/detect_defect` (`std_srvs/srv/Trigger`)
+
+服务：
+
+- `start` / `stop` / `pause` / `resume` / `get_status`
 
 参数：
-- `grasp_tasks_file` (string) → YAML 抓取任务配置文件路径
-- `default_task_name` (string) → 不传 task_name 时使用的默认模板
-- `agv_timeout_sec` (double, 60.0)
-- `arm_timeout_sec` (double, 30.0)
-- `perceive_timeout_sec` (double, 10.0) — 感知服务调用超时
-- `gripper_timeout_sec` (double, 2.0) — 夹爪 open/close 后等待稳定
-- `max_perceive_retries` (int, 3) — PERCEIVE 无目标时重拍次数
-- `max_grasp_retries` (int, 2) — GRASP 后抬起发现没夹到时重试次数
-- `approach_offset_m` (double, 0.10) — PRE_GRASP 距抓取点高度（也可由 YAML 覆盖）
+
+- `stations_file`：巡检站位 YAML。
+- `agv_timeout_sec`
+- `arm_timeout_sec`
+- `depth_adjust_timeout_sec`
+- `detection_timeout_sec`
+- `max_depth_retries`
+- `depth_roi_center_x` / `depth_roi_center_y` / `depth_roi_width` / `depth_roi_height`（建议新增）
+- `depth_kp` / `depth_max_step`（建议新增）
 
 ## 3. 状态机
 
-```
+```text
 IDLE
- └─ NAV_TO_PICK          (use_agv=false 时跳过)
-     └─ ARM_TO_OBSERVE
-         └─ CAPTURE_RGBD
-             └─ PERCEIVE
-                 └─ TRANSFORM_IK
-                     └─ PRE_GRASP
-                         └─ GRASP
-                             └─ CLOSE_GRIPPER
-                                 └─ LIFT
-                                     ├─ (检测失败) → RECOVERY
-                                     └─ NAV_TO_PLACE (可选)
-                                         └─ PLACE
-                                             └─ OPEN_GRIPPER
-                                                 └─ HOME
-                                                     └─ IDLE
-
-任一阶段 → PAUSED / STOPPED / FAILED
-RECOVERY: 根据失败类型选择重拍/重规划/终止
+  -> MOVING_TO_STATION
+  -> ARM_PRESET
+  -> DEPTH_ADJUST
+  -> CAPTURING
+  -> 下一站位 / COMPLETED
 ```
 
-### 阶段说明
+每个执行阶段都支持 `PAUSED`、`STOPPED`、`FAILED`。
 
-| 阶段 | 动作 | 成功条件 | 失败策略 |
-|------|------|---------|----------|
-| NAV_TO_PICK | 发 goal_pose / goal_station 给 AGV | `agv_status.arrived && stopped && error_code=="OK"` | 超时→FAILED |
-| ARM_TO_OBSERVE | 调 `move_to_joints` | 服务 success=true | 超时→FAILED |
-| CAPTURE_RGBD | 缓存最新同步 RGBD | 三者 stamp 差 < 50ms 且都非空 | 重取 3 次→FAILED |
-| PERCEIVE | 调 `perceive_grasp` | `len(candidates) >= 1` | 最多 max_perceive_retries 次重拍 |
-| TRANSFORM_IK | tf2 变换 + `move_to_pose(plan_only=true)` 筛选可达候选 | 至少 1 个候选 IK 通过 | 换观察位→再 PERCEIVE |
-| PRE_GRASP | `move_to_pose` (PILZ_LIN) | motion_status=done | FAILED |
-| GRASP | `move_to_pose` (PILZ_LIN, 下压到抓取点) | motion_status=done | FAILED |
-| CLOSE_GRIPPER | 调 `gripper/close`，等 gripper_timeout_sec | gripper_status.is_closed && !moving | FAILED |
-| LIFT | `move_to_pose` (PILZ_LIN, 上升) | motion_status=done | FAILED |
-| (抓取后检测) | 复核是否真夹到（可选：DI 压力反馈 / 二次观察） | 判定成功 | 重拍重抓 max_grasp_retries 次 |
-| NAV_TO_PLACE | 同 NAV_TO_PICK | 同上 | |
-| PLACE | 移到放置点上方→下压→OPEN_GRIPPER | 序列完成 | FAILED |
-| OPEN_GRIPPER | 调 `gripper/open`，等 gripper_timeout_sec | gripper_status.is_closed==false | FAILED |
-| HOME | `move_to_joints(home)` | motion_status=done | 单独日志警告，不阻塞下一次任务 |
+| 阶段 | 动作 | 成功条件 |
+|---|---|---|
+| `MOVING_TO_STATION` | 发布 AGV 目标 | `agv_status.arrived && connected && stopped && error_code=="OK"` |
+| `ARM_PRESET` | 调 `MoveToJoints` | 服务返回 success |
+| `DEPTH_ADJUST` | 读 RealSense 深度，估计工作距，调 `MoveToPose` | 距离误差小于容差 |
+| `CAPTURING` | 触发海康拍照，调用缺陷检测 | 收到检测结果或记录失败 |
 
 ## 4. YAML 配置格式
 
-`config/grasp_tasks.yaml` 示例：
-
 ```yaml
-tasks:
-  demo_pick_screw:
-    object_class: "screw_m8"
-    pick:
-      use_agv: true
-      agv_station: "PICK_01"          # 或 agv_pose: {x, y, yaw}
-      arm_observe_joints: [0.0, -0.5, 1.2, 0.0, 0.8, 0.0]
-      approach_offset_m: 0.10
-      velocity_scaling: 0.2
-    place:
-      use_agv: true
-      agv_station: "PLACE_01"
-      arm_place_joints: [0.0, 0.3, 0.8, 0.0, 1.1, 0.0]
-      release_offset_m: 0.05
-    recovery:
-      max_perceive_retries: 3
-      max_grasp_retries: 2
-
-  # 可扩展更多任务模板
-  demo_pick_bolt:
-    object_class: "bolt_m10"
-    pick: ...
-    place: ...
+stations:
+  - name: "station_1"
+    agv_pose: {x: 1.0, y: 2.0, z: 0.0, yaw: 0.5}
+    arm_joints: [0.0, -0.5, 1.2, 0.0, 0.8, 0.0]
+    target_distance: 0.30
+    distance_tolerance: 0.02
+    adjust_axis: "z"
 ```
 
-## 5. 数据流
+## 5. 工作距微调约束
 
-```mermaid
-flowchart TB
-  Start["/inspection/start(srv)"] --> CO["task_coordinator"]
-  YAML["grasp_tasks.yaml"] --> CO
+当前代码已有中心 ROI 深度中值测距骨架，但需要修正：
 
-  CO -->|goal_pose / goal_station| AGV["agv_driver"]
-  AGV -->|status (arrived/stopped)| CO
+- `MoveToPose.target_pose` 按绝对位姿解释，不能直接把 `position.z = delta` 当相对位移。
+- 应获取当前 TCP 位姿，并把深度误差转换到 planning frame 后叠加成新的绝对目标位姿。
+- 增强算法应订阅 `CameraInfo`，把 ROI 深度反投影成局部点云，使用 PCA / RANSAC 估计非平面局部切平面。
 
-  CO -->|MoveToJoints (observe/home)| ARMC["arm_controller"]
-  CO -->|MoveToPose (PILZ_LIN pre_grasp/grasp/lift)| ARMC
+## 6. CAPTURING 阶段约束
 
-  RS["realsense_driver"] -->|RGBD + camera_info| GP["grasp_perception"]
-  CO -->|PerceiveGrasp| GP
-  GP -->|GraspPose[] (camera_frame)| CO
+目标顺序：
 
-  CO -->|tf2 lookup| TF["TF tree"]
-
-  CO -->|gripper/open / gripper/close| GR["gripper_driver"]
-  GR -->|dio/set_output| DIO["dio_driver"]
-
-  CO -->|/inspection/state| GW["inspection_gateway"]
-  CO -->|/inspection/events| GW
+```text
+trigger_capture
+  -> 等待 /inspection/hikvision/image_raw 新帧
+  -> detect_defect
+  -> 等待 perception/result
+  -> 记录当前站位结果
 ```
 
-## 6. 推荐内部架构（避免所有逻辑堆在 Node 回调）
+不要只调用 `detect_defect` 而跳过相机触发。
 
-建议拆成 3 层：
+## 7. 文档与 TODO 维护
 
-1. `CoordinatorCore`（无 ROS 依赖）
-   - 状态机 + 阶段规则 + 超时/重试计数
-   - 纯函数式接口：输入 `Inputs`（status/感知结果/时间），输出 `Actions`（要触发的下一步）
-   - 可单测
-2. `InterlockPolicy`
-   - 把"门控"规则集中：`agv_ready()`、`arm_ready()`、`gripper_ready()`、`grasp_candidates_valid()`
-   - 避免散落在状态机分支里
-3. `RosAdapter(Node)`
-   - ROS pub/sub/srv/timer、tf2 lookup
-   - 维护 Inputs/Actions 的线程安全封装
-   - 把 Action 翻译成 ROS 调用
+修改 public ROS API、状态机阶段、站位配置格式或端到端数据流时，必须同步更新：
 
-约束：
-- ROS 回调里不做长时间阻塞（service async + future + timer tick）
-- 感知/规划调用放 worker 线程或独立 executor
+- 仓库根 `TODO.md`
+- `docs/ARCHITECTURE.md`
+- `docs/IMPLEMENTATION_STATUS.md`
+- `docs/WORKSPACE_OVERVIEW.md`
 
-## 7. 文档与 TODO 维护（必须）
-
-- 修改 public ROS API（topic/service/参数）或状态机推进规则时，必须同步更新：本文件、`docs/ARCHITECTURE.md`、仓库根 `TODO.md`
-- 任何"阶段性实现/临时逻辑"必须在 `TODO.md` 留痕

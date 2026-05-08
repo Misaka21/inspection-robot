@@ -100,7 +100,7 @@ flowchart LR
 ## 6. 单测与联调建议
 
 单测（不连真机）：
-- 为 `AgvClient` 注入一个 fake transport（或在 transport 增加 `ITransport` 接口），回放 JSON 响应做解析测试
+- 为 `AgvClient` 注入 mock transport（或在 transport 增加 `ITransport` 接口），回放 JSON 响应做解析测试
 
 联调（真机）：
 - 开 `log_io=true`，确认 cmd/port/seq 对齐
@@ -110,4 +110,4 @@ flowchart LR
 
 - 修改 public ROS API（topic/service/参数）时，必须同步更新：本文件、包内 `README.md`、`docs/ARCHITECTURE.md`、仓库根 `TODO.md`
 - 新增功能但未实现完：必须把未完成项写入 `TODO.md`（带清晰落点与验收标准）
-- 完成 TODO：必须勾选并在提交信息/PR 描述里说明验证方式（真机/仿真/回放）
+- 完成 TODO：必须勾选并在提交信息/PR 描述里说明验证方式（真机/回放/单测）

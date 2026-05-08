@@ -1,170 +1,95 @@
-# 实现状态与代码规划（抓取场景）
+# 实现状态与代码规划（巡检方向）
 
-本文档把 `inspection_gateway` 的 REST/WS 对外能力，映射到 `inspection-robot` 的包结构 / ROS2 接口，并标注**当前代码是否已存在**，避免"文档写了但代码没落地"。
+本文档按当前论文方向“基于移动协作机械臂的大型工件视觉检测/巡检系统”梳理代码现状和缺口。
 
-> **方向变更（2026-04-23）**：从巡检改为抓取。`task_coordinator` 原"8 点位循环"状态机、`defect_detector` 调用、`hikvision_driver` 作为主相机 —— 这些内容在抓取 pipeline 里**不再是主路径**。原 REST/WS 端点中的"巡检任务"语义需要调整为"抓取任务"语义。
->
-> 历史演进：本项目最初采用 gRPC 架构（`inspection-api` proto + `inspection-hmi` Qt），已于 2025 年迁移至 FastAPI REST/WS 方案。`inspection-api` 和 `inspection-hmi` 仓库已归档，前端当前为 `inspection-site`（React）。
+> 当前不以网页前端为主线，不依赖 fake driver。`inspection_gateway` 和 `inspection_sim` 保留源码，但不作为当前论文系统闭环的必要模块。
 
-## 1. 当前代码现状（快速结论）
+## 1. 快速结论
 
-### 1.1 基础设施（与课题方向无关，保持可用）
-- `inspection_gateway`（FastAPI REST/WS server）：**基础框架已实现**
-  - 已有：FastAPI server 启动、ROS2 bridge、CAD/媒体落盘、`Start/Pause/Resume/Stop/GetTaskStatus/SystemState(WS)/GetNavMap/DownloadMedia`
-  - 语义待对齐：当前是"巡检任务"语义，需改为"抓取任务"
-- `inspection_interface`：ROS2 msg/srv 基础框架已有；**需新增**`PerceiveGrasp.srv`、`StartGrasp.srv`、`GraspPose.msg`、`GripperStatus.msg`
-- `agv_driver`：**可用**，真机端 `get_nav_map` 缺失（仿真已有）
-- `arm_driver`：**可用**（EtherCAT）
-- `arm_controller`：**基本可用**，需启用 Pilz LIN plugin 做直线插补
-- `realsense_driver`：**可用**（系统包适配）
-- `dio_driver`：**可用**（研华 AGX TCA9539 GPIO 扩展）
-- `elfin_description`：URDF **可用**
+### 已有基础
 
-### 1.2 抓取方向新增/改造
-- `task_coordinator`：**需要重写状态机**（从"8 点位循环"→"抓取 pipeline"）。原状态机的配置驱动/YAML/超时机制架构可复用，但具体阶段名和业务逻辑要换
-- `gripper_driver`：**缺失**，需新建（Python 包即可）
-- `grasp_perception`：**缺失**，需新建（YOLOv8 + 深度路径 A）
-- `inspection_bringup` 的标定 yaml（mount_calib / handeye_calib / gripper_offset）：**缺失**
-- `inspection_sim`：Fake drivers 需新增 `fake_grasp_perception`、`fake_gripper`
+- `agv_driver`：已有底盘驱动、状态发布、目标位姿下发等基础能力。
+- `arm_driver`：已有机械臂底层驱动、关节状态和基础服务。
+- `arm_controller`：已有 MoveIt2 `move_to_joints` / `move_to_pose` 服务。
+- `realsense_driver`：已有 RealSense 启动配置，支持 aligned depth。
+- `hikvision_driver`：已有工业相机驱动、`image_raw` 发布和 `trigger_capture` 服务。
+- `task_coordinator`：已有巡检状态机骨架，支持 YAML 站位、AGV 门控、机械臂预设、深度中值微调和缺陷检测触发。
+- `inspection_interface`：已有巡检相关 msg/srv，例如 `SystemState`、`DefectInfo`、`MoveToPose`、`MoveToJoints`。
+- `inspection_bringup`：已有 drivers/system launch 和站位配置。
 
-### 1.3 已不再是主路径（保留但标记）
-- `defect_detector`：巡检专用，抓取场景不调用。保留源码，但从 `system.launch.py` 移除
-- `hikvision_driver`：巡检专用工业相机，抓取主用 RealSense。保留驱动但 `system.launch.py` 默认不启用
+### 核心缺口
 
-## 2. REST/WS 能力到机器人端模块映射（抓取 V1）
+- `defect_detector` 仍是骨架，没有真实缺陷检测算法。
+- `task_coordinator` 的 `CAPTURING` 阶段尚未形成“触发海康拍照 -> 等待新图 -> 缺陷检测 -> 收集结果”的闭环。
+- 深度微调当前只是中心 ROI 中值，且位姿修正语义需要修正：`MoveToPose` 接收绝对位姿，不能直接传相对 `delta`。
+- 非平面局部点云微调算法尚未实现。
+- 真机 `agv_driver/get_nav_map` 地图服务尚未实现；当前论文如不展示网页地图，可不作为 P0。
+- 网页、REST/WS、fake driver 相关功能不作为当前主线。
 
-说明：
-- "当前状态"仅描述仓库内是否已有可用模块，不代表算法正确性
-- 下面的"建议 ROS2 接口"是对内稳定契约，供 `inspection_gateway` 调用
+## 2. 模块状态表
 
-| REST/WS 端点 | 机器人端责任模块 | ROS2 接口（对内） | 当前状态 | 备注 |
-|---|---|---|---|---|
-| `POST /cad/upload` | `inspection_gateway` + `CadStore` | (网关内) | **已实现** | 抓取 V1 不强依赖；6D 位姿升级路径会用 |
-| `POST /targets` | `inspection_gateway` + `GatewayRuntime` | (网关内) | **已实现** | 抓取 V1 基本不用；保留字段 |
-| `POST /tasks` | `inspection_gateway` → `task_coordinator` | `/inspection/start` (`StartInspection.srv`) | **部分已实现** | **需改为 `StartGrasp.srv`**，支持 `object_class`/`task_name` |
-| `POST /tasks/{id}/pause` | `inspection_gateway` → `task_coordinator` | `/inspection/pause` | **已实现** | 语义不变 |
-| `POST /tasks/{id}/resume` | `inspection_gateway` → `task_coordinator` | `/inspection/resume` | **已实现** | 语义不变 |
-| `POST /tasks/{id}/stop` | `inspection_gateway` → `task_coordinator` | `/inspection/stop` | **已实现** | 语义不变 |
-| `GET /tasks/{id}/status` | `inspection_gateway` → `task_coordinator` | `/inspection/get_status` | **已实现** | **phase 枚举需改为抓取阶段** |
-| `WS system_state` | `inspection_gateway` 订阅 ROS2 并推送 | `/inspection/state` (`SystemState.msg`) | **已实现** | **SystemState 需扩充抓取阶段字段** |
-| `WS grasp_event`（新） | `inspection_gateway` 订阅事件并推送 | `/inspection/events`（待新增 msg） | **未实现** | |
-| `GET /nav/map` | `inspection_gateway` 缓存 + `agv_driver` | `/inspection/agv/get_nav_map` | **网关已实现**；ROS server 真机端缺失，仿真已有 | |
-| `GET /tasks/{id}/captures` | `inspection_gateway` + `MediaStore` | (网关内) | **桩代码**，返回 UNAVAILABLE | 抓取场景也需要（观察图/抓取瞬间图） |
-| `GET /media/{media_id}` | `inspection_gateway` + `MediaStore` | (网关内) | **已实现** | |
+| 模块 | 当前状态 | 为论文闭环还需补齐 |
+|---|---|---|
+| `agv_driver` | 基础驱动可用 | 真机站位验证；可选补 `get_nav_map` |
+| `arm_driver` | 基础驱动可用 | 真机关节状态与到位判定验证 |
+| `arm_controller` | MoveIt2 服务可用 | 暴露/记录当前 TCP 位姿；支持微调绝对目标生成 |
+| `realsense_driver` | aligned depth 配置可用 | 验证 depth 与 ROI 对齐；订阅 camera_info |
+| `hikvision_driver` | 触发拍照服务可用 | 与 task_coordinator 串联，确认新图同步机制 |
+| `defect_detector` | 骨架 | 实现 YOLOv8-seg / PatchCore 等真实算法 |
+| `task_coordinator` | 巡检状态机骨架 | 修正微调、串联拍照检测、订阅检测结果 |
+| `inspection_interface` | 基础 msg/srv 已有 | 视缺陷输出需求扩展 bbox/mask/面积字段 |
+| `inspection_bringup` | launch/config 已有 | 与巡检主线参数对齐，清理抓取残留 |
+| `inspection_gateway` | 历史可选 | 当前非主线，不作为论文验收 |
+| `inspection_sim` | 历史可选 | 当前非主线，不作为论文验收 |
 
-## 3. 代码层级结构
+## 3. 当前执行链路与缺口
 
-### 3.1 inspection_gateway（Python，FastAPI）
+### 3.1 目标链路
 
-当前分层架构完整；抓取方向主要是**语义调整**：
-
-```
-inspection_gateway/
-├── main.py            # 进程入口: ROS2 守护线程 + uvicorn 主线程
-├── api/
-│   ├── app.py         # FastAPI 工厂
-│   ├── deps.py        # 依赖注入
-│   ├── models.py      # Pydantic v2 数据模型 — API 契约的唯一事实来源
-│   │                  # ⚠ 需要调整：StartInspection→StartGrasp、phase 枚举、事件类型
-│   ├── routes/        # REST 路由（薄层）
-│   └── ws/            # WebSocket 端点
-├── ros/
-│   ├── bridge.py      # RosBridge: ROS2 service clients (线程安全)
-│   └── state_hub.py   # StateHub: ROS2 → WebSocket 线程安全桥接
-├── store/             # 文件存储（CAD/媒体）
-└── domain/
-    ├── converters.py  # ROS msg → Pydantic model 纯转换函数
-    └── runtime.py     # 运行时状态（targets/task_id）
+```text
+ros2 service call /inspection/start
+  -> task_coordinator 加载 inspection_stations.yaml
+  -> MOVING_TO_STATION: 发布 /inspection/agv/goal_pose
+  -> ARM_PRESET: 调 /inspection/arm_control/move_to_joints
+  -> DEPTH_ADJUST: 读取 RealSense aligned depth 并微调 TCP
+  -> CAPTURING: 调 /inspection/hikvision/trigger_capture
+  -> defect_detector: 对最新海康图像推理
+  -> 发布 /inspection/perception/result
+  -> task_coordinator 记录结果并进入下一站
 ```
 
-### 3.2 ROS2 侧（inspection-robot）
+### 3.2 当前代码差距
 
-抓取场景下的包边界：
+- `DEPTH_ADJUST`：
+  - 已有中心 ROI 中值测距。
+  - 需要修正相对/绝对位姿语义。
+  - 需要扩展到 `camera_info` + 局部点云 + PCA/RANSAC。
 
-- `agv_driver`：封装厂商 TCP API + 发布状态 + 提供 `get_nav_map`（真机端待实现）
-- `arm_driver`：EtherCAT 驱动 + 发布状态
-- `arm_controller`：MoveIt2 执行层（OMPL + **Pilz LIN**，后者用于 PRE_GRASP→GRASP 直线段）
-- `realsense_driver`：RGBD + camera_info + TF
-- `dio_driver`：板载 DIO 通用层
-- `gripper_driver` **[新]**：`open`/`close` 语义，底层调 dio
-- `grasp_perception` **[新]**：`perceive_grasp` service，RGBD 输入，抓取候选输出
-- `task_coordinator`：抓取 pipeline 状态机（重写）
-- `inspection_interface`：对内 msg/srv（新增抓取相关）
-- `inspection_sim`：Fake drivers（需补抓取场景）
+- `CAPTURING`：
+  - 当前主要触发 `detect_defect`。
+  - 需要先触发 `hikvision/trigger_capture`，并保证检测使用的是该站位新图。
 
-## 4. 数据流（抓取单次任务）
+- `defect_detector`：
+  - 当前收到图像后发布占位 `none` 结果。
+  - 需要实现真实模型加载、推理和后处理。
 
-### 4.1 控制面
+## 4. 论文实验需要补的数据
 
-```
-浏览器 (inspection-site)
-  │
-  ├─ POST /tasks {task_name, object_class, ...}
-  │                         │
-  │            inspection_gateway → /inspection/start (StartGrasp.srv) → task_coordinator
-  │
-  └─ WS /ws
-       ├─ system_state ← /inspection/state ← task_coordinator
-       └─ grasp_event  ← /inspection/events ← task_coordinator  [待实现]
-```
+| 实验 | 需要产物 |
+|---|---|
+| 工作距微调 | 微调前后距离误差 CSV、收敛次数、失败率 |
+| 非平面适应 | 不同倾角/曲率 ROI 的距离估计误差 |
+| 缺陷检测 | 数据集、标注、Precision、Recall、mAP/F1、推理耗时 |
+| 多站位巡检 | 单站耗时、整轮耗时、连续运行成功率 |
+| 系统演示 | RViz 截图、ros2 topic/service 日志、原图与标注图 |
 
-### 4.2 执行面
+## 5. 建议落地顺序
 
-```
-task_coordinator 状态机：
+1. 文档与 launch 口径全部回到巡检方向。
+2. 修正 `DEPTH_ADJUST` 的位姿控制语义。
+3. 补 `CameraInfo` 订阅与局部点云工作距估计。
+4. 串联 `trigger_capture -> detect_defect -> result`。
+5. 实现 `defect_detector` 真实检测算法。
+6. 保存实验数据与标注图。
+7. 真机多站位跑通并统计论文指标。
 
-NAV_TO_PICK:     task_coordinator → /inspection/agv/goal_pose → agv_driver
-                 wait agv_status.arrived && stopped
-
-ARM_TO_OBSERVE:  task_coordinator → /inspection/arm_control/move_to_joints → arm_controller
-                 wait arm_status.arrived
-
-CAPTURE_RGBD:    realsense_driver → task_coordinator (缓存 color/aligned_depth/camera_info)
-
-PERCEIVE:        task_coordinator → /inspection/grasp/perceive_grasp → grasp_perception
-                                         ↑
-                                   订阅 realsense color/depth/info
-                 返回：candidates: GraspPose[]  (frame_id = camera_color_optical_frame)
-
-TRANSFORM_IK:    task_coordinator: tf2 lookup camera→arm_base
-                 遍历 candidates: /inspection/arm_control/move_to_pose (plan_only=true) 可达性筛选
-
-PRE_GRASP:       task_coordinator → /inspection/arm_control/move_to_pose (planner=PILZ_LIN)
-
-GRASP:           同上（直线下压到抓取点）
-
-CLOSE_GRIPPER:   task_coordinator → /inspection/gripper/close → gripper_driver
-                                                                 ↓
-                                                             /inspection/dio/set_output → dio_driver → 电磁阀
-
-LIFT:            task_coordinator → /inspection/arm_control/move_to_pose (PILZ_LIN)
-
-NAV_TO_PLACE / PLACE / OPEN_GRIPPER / HOME: 同模式
-```
-
-## 5. 下一步落地顺序（建议）
-
-按 P0 难度递增排列：
-
-1. **标定与 TF**（半天）
-   - `base_link → arm_base` 静态 TF（写 yaml）
-   - `tool0 → gripper_tip` 静态 TF（量一次写死）
-   - `tool0 → camera_link` 手眼标定（`easy_handeye2` + ChArUco，半天）
-2. **`gripper_driver`**（半天）
-   - Python 薄包，封装 dio/set_output 为 open/close 语义
-3. **`inspection_interface` 消息扩充**（1-2 小时）
-   - `PerceiveGrasp.srv` / `StartGrasp.srv` / `GraspPose.msg` / `GripperStatus.msg`
-4. **`arm_controller` 启用 Pilz LIN**（1 小时）
-   - MoveIt plugin 配置 + `move_to_pose.srv` 加 `planner_id` 字段
-5. **`grasp_perception` v0（YOLOv8 + 深度 + 固定姿态查表）**（2-3 天）
-   - 数据集标注 + 训练 + 节点实现
-6. **`task_coordinator` 状态机重写**（2-3 天）
-   - 新 pipeline + YAML 配置 + RECOVERY
-7. **`inspection_gateway` 语义调整**（1 天）
-   - models.py 新增 `StartGrasp`/`GraspEvent`/抓取阶段枚举
-   - routes/tasks.py 对应改动
-8. **`inspection_bringup/system.launch.py` 整合**（半天）
-9. **端到端 demo 走通**（1 天联调）
-10. **（可选加分）FoundationPose 6D 位姿路径**（3-5 天）
-
-总预估：2-3 周能跑通 V1 demo；加 6D 位姿再加 1 周。

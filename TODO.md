@@ -1,122 +1,80 @@
-# TODO（inspection-robot，抓取系统）
+# TODO（inspection-robot，巡检系统）
 
-本文件维护"还要做什么"的**单一事实来源**（Single Source of Truth）。
-任何跨包接口/数据流的修改，都必须同步更新本文档与相关 `docs/*` / `src/*/CLAUDE.md`，避免口径漂移。
+本文件维护“还要做什么”的单一事实来源。当前课题方向为：**基于移动协作机械臂的大型工件视觉检测/巡检系统**。
+
+> 说明：
+> - 不再推进复合机器人抓取方向；`grasp_perception` / `gripper_driver` / 抓取 pipeline 相关任务移出主线。
+> - 当前论文与演示不依赖网页前端；`inspection_gateway` 保留为历史/可选模块。
+> - 当前论文与演示不依赖 fake driver；`inspection_sim` 保留为历史/可选模块，不作为主线验收依据。
 
 相关参考：
-- 端到端约定：`docs/WORKSPACE_OVERVIEW.md`
-- 落地缺口清单：`docs/IMPLEMENTATION_STATUS.md`
-- 对外 API 契约：`src/inspection_gateway/inspection_gateway/api/models.py`
-
-> **课题方向更新（2026-04-23）**：从"大型工件视觉检测（巡检）"调整为"复合移动机器人抓取"。
-> - 新 pipeline：AGV 到点 → 手眼相机拍 RGBD → 感知出抓取位姿 → MoveIt 规划 → 气动夹爪抓 → 放置
-> - 相机：RealSense D435，**eye-in-hand**（装机械臂末端）
-> - 夹爪：气动二指夹爪（通过 `dio_driver` 的 DO 线驱动电磁阀）
-> - 算力：Jetson Orin AGX 64G（不选 GraspNet/AnyGrasp；已知工业件用 YOLOv8+深度 或 6D 位姿估计）
-> - 历史巡检相关 P0/P1/P2 任务（8 点位循环、defect_detector 填充等）已**归档**到文末"附录 A：巡检场景遗留任务（不再推进）"
+- 主说明：`README.md`
+- 系统架构：`docs/ARCHITECTURE.md`
+- 落地缺口：`docs/IMPLEMENTATION_STATUS.md`
+- 论文说明：`docs/THESIS_PROJECT_SUMMARY.md`
 
 ---
 
-## P0（必须，把抓取 demo 跑出来）
+## P0（必须，先让巡检闭环真实成立）
 
-### 基础设施
-- [ ] **`base_link → arm_base` 静态 TF**：机械臂安装位姿标定，yaml 存在 `inspection_bringup/config/mount_calib.yaml`，由 bringup 发布
-- [ ] **`tool0 → camera_link` 手眼标定**：用 `easy_handeye2` + ChArUco 完成；结果存 `inspection_bringup/config/handeye_calib.yaml`
-- [ ] **`tool0 → gripper_tip` 静态 TF**：气动夹爪 offset，量一次写死在 yaml
-- [ ] `inspection_bringup/drivers.launch.py` 替换 `tool0 → hikvision_frame` 为 `tool0 → camera_link` + `tool0 → gripper_tip`
-- [ ] `inspection_bringup/system.launch.py` 纳入 `realsense_driver` + `dio_driver` + `gripper_driver` + `grasp_perception` + `arm_controller` + `task_coordinator`
+### 任务编排
+- [ ] 确认 `task_coordinator` 主状态机固定为巡检流程：`MOVING_TO_STATION -> ARM_PRESET -> DEPTH_ADJUST -> CAPTURING`
+- [ ] `task_coordinator` 在 `CAPTURING` 阶段先调用 `hikvision/trigger_capture`，等待新图像后再触发 `defect_detector/detect_defect`
+- [ ] `task_coordinator` 订阅 `defect_detector/result`，保存每个站位的缺陷结果，不只看 Trigger 返回值
+- [ ] `inspection_stations.yaml` 真机标定：填入实际 AGV 站位坐标、机械臂预设关节角、目标工作距和容差
 
-### 夹爪（新增包 `gripper_driver`）
-- [ ] 新建 `gripper_driver`（Python 或 C++ 都行，先简单）：封装 `dio_driver/set_output` 为 `/inspection/gripper/open`、`/inspection/gripper/close`（`std_srvs/srv/Trigger`）
-- [ ] `gripper_driver` 订阅 `dio/status`，发布 `/inspection/gripper/status`（`std_msgs/Bool` 或新增 `GripperStatus.msg`）
-- [ ] 确认气动电磁阀接线到的 DO 线号（默认假设 DO0=夹紧，DO1=松开，需真机确认），写到 yaml
+### 工作距微调
+- [ ] 修正当前深度微调的位姿语义：不要把 `MoveToPose.target_pose` 当相对位移；应读取当前 TCP 位姿，叠加偏移后发送绝对目标位姿
+- [ ] 订阅 `camera_info`，支持 ROI 深度反投影为局部点云
+- [ ] 实现 ROI 有效深度滤波：无效值过滤、深度范围约束、中值/分位数滤波
+- [ ] 实现非平面局部表面估计：PCA 或 RANSAC 拟合局部切平面，输出中心点、法向和曲率指标
+- [ ] 增加微调参数：`roi_center` / `roi_size` / `kp` / `max_step` / `min_valid_points` / `curvature_threshold`
+- [ ] 真机验证深度微调：微调后工作距误差达到论文目标（建议 ±2 cm）
 
-### 感知（新增包 `grasp_perception`）
-- [ ] 新建 `grasp_perception`（Python）：订阅 RealSense `color/depth/camera_info`，提供 `srv/PerceiveGrasp` 服务
-- [ ] 路径 A（先跑通）：YOLOv8 目标检测 + 深度取 bbox 中心 Z + 固定抓取姿态（类别到姿态的 yaml 查表）
-- [ ] 数据集准备：每类工业件 100–300 张标注图（YOLO 格式），训练 YOLOv8n
-- [ ] 路径 B（加分项，可选）：集成 FoundationPose 或 MegaPose，用 CAD 做 6D 位姿估计 + 预标注抓取点
+### 缺陷检测
+- [ ] `defect_detector` 从骨架改为真实算法：缓存最新图像，service 触发时推理，不在图像回调里阻塞推理
+- [ ] 选择并实现主算法：
+  - YOLOv8-seg：有标注缺陷数据时使用
+  - PatchCore / PaDiM：缺陷样本少时作为异常检测路线
+- [ ] 完成图像预处理、推理、后处理、NMS/阈值分割
+- [ ] 扩展或复用 `DefectInfo.msg`，输出缺陷类别、置信度、bbox/mask、面积、中心位置
+- [ ] 输出标注图，至少能落盘到实验目录供论文使用
 
-### 接口（`inspection_interface`）
-- [ ] 新增 `srv/PerceiveGrasp.srv`：request `{string object_class(可选)}`，response `{bool success; string error; GraspPose[] candidates; string frame_id}`
-- [ ] 新增 `msg/GraspPose.msg`：`{geometry_msgs/Pose pose; float64 width_m; float64 score}`
-- [ ] 新增 `srv/StartGrasp.srv`（或沿用 `StartInspection.srv` 改语义）：request `{string task_name; string object_class(可选); bool dry_run}`，response `{bool success; string task_id}`
-- [ ] 新增 `msg/GripperStatus.msg`：`{builtin_interfaces/Time stamp; bool is_closed; bool moving}`
-- [ ] `msg/SystemState.msg` 新增抓取阶段枚举（PICK/OBSERVE/CAPTURE/PERCEIVE/PRE_GRASP/GRASP/LIFT/PLACE…）
-
-### 任务编排（`task_coordinator`）
-- [ ] 状态机重写：从"8 点位巡检循环"→"单次抓取 pipeline"（IDLE → NAV_TO_PICK → ARM_TO_OBSERVE → CAPTURE_RGBD → PERCEIVE → TRANSFORM_IK → PRE_GRASP → GRASP → CLOSE_GRIPPER → LIFT → NAV_TO_PLACE → PLACE → OPEN_GRIPPER → HOME → IDLE）
-- [ ] YAML 配置格式改为抓取任务（见 `src/task_coordinator/CLAUDE.md` §4）：`pick` / `place` 两个点位 + 观察位 + 目标类别
-- [ ] 调用链：`PerceiveGrasp` service → TF 变换 → `arm_controller/move_to_pose`（Pilz LIN）→ `gripper_driver/close` → 后续步骤
-- [ ] 删除/替换 DEPTH_ADJUST 阶段（巡检专用），改为"感知+可达性检查"前置
-- [ ] RECOVERY 逻辑：感知无目标 / IK 不可达 / 抓取失败（夹爪力反馈或视觉复核）→ 重拍 N 次
-
-### 控制（`arm_controller`）
-- [ ] 引入 Pilz industrial motion planner（MoveIt plugin `pilz_industrial_motion_planner`）做 LIN 直线插补，用于 `PRE_GRASP → GRASP` 段
-- [ ] 工作台/AGV 本体加入 MoveIt PlanningScene 碰撞模型（避免撞底盘）
-- [ ] `arm_controller/move_to_pose` 服务支持 `planner_id` 参数（OMPL 或 PILZ_LIN）
-
-### 网关（`inspection_gateway`）
-- [ ] REST/WS 语义从"巡检任务"调整为"抓取任务"：
-  - `POST /api/v1/tasks` 请求体改为 `StartGraspRequest`（含 `object_class` / `pick_config` / `place_config`）
-  - `TaskStatus` 的 phase 改为抓取阶段枚举
-  - `InspectionEvent` → `GraspEvent`（PERCEIVED / GRASPED / DROPPED / FAILED）
-- [ ] 删除/禁用 `/cad/upload` 和 `/targets` 路由（抓取场景不需要 CAD 表面选点）；或标注为"保留以备 6D 位姿路径使用"
-- [ ] `/nav/map` 保留（AGV 有站位可视化仍需要）
-
-### AGV（`agv_driver`）
-- [ ] 真机端实现 `get_nav_map` service server（仿真端 `fake_agv` 已有）：封装 1300/4011/1513 TCP API
+### 相机与标定
+- [ ] 标定并固定 `base_link -> arm_base`
+- [ ] 标定并固定 `tool0 -> hikvision_frame`
+- [ ] 标定并固定 `tool0 -> camera_link`（RealSense）
+- [ ] 确认海康相机触发模式、曝光、增益、标定参数在 launch/config 中可复现
+- [ ] 确认 RealSense aligned depth 与目标 ROI 对齐可用
 
 ---
 
-## P1（功能完善）
+## P1（论文实验与结果链路）
 
-- [ ] `task_coordinator` 订阅 `grasp_perception/result` topic（除了 service 调用外，保留一路结果流供可视化/复盘）
-- [ ] 抓取失败检测：夹爪闭合后等 300ms 读 DI（气压/光电）或二次观察 RGB，判定是否真的夹到
-- [ ] `inspection_supervisor` 健康监控改为订阅结构化 status：`/inspection/agv/status`、`/inspection/arm/status`、`/inspection/gripper/status`、`/inspection/state`
-- [ ] 观察位自动选择：给定目标类别 → 从观察位候选集里挑"无自遮挡 + 可达 + 视野最好"的
-- [ ] RealSense 时间同步：`aligned_depth_to_color` 与 `color/image_raw` 的 stamp 偏差要在 `grasp_perception` 里检查
-- [ ] `grasp_perception` 可视化：发布 `PoseArray` 抓取候选 + 标注图像（rviz2 调试用）
-
----
-
-## P2（结果与事件流）
-
-- [ ] 新增 `/inspection/events` topic（结构化事件：OBSERVED / PERCEIVED / GRASPED / DROPPED / FAILED…），网关映射到 WebSocket `grasp_event`
-- [ ] 抓拍落盘：`capture_manager` 或等效模块把观察图 / 抓取瞬间图落盘成 `media_id` 供上位机回看
-- [ ] 支持 `GET /tasks/{id}/captures` 与历史任务回看
+- [ ] 新增或整理实验脚本：保存每站位原图、深度 ROI、微调前后距离、缺陷检测结果和耗时 CSV
+- [ ] 设计深度微调实验：平面、倾斜面、曲面/局部非平面各自统计误差
+- [ ] 设计缺陷检测实验：Precision、Recall、mAP、F1、推理耗时
+- [ ] 设计多站位巡检实验：单站耗时、整轮耗时、连续运行成功率
+- [ ] 整理 RViz/ros2 CLI 演示流程，不依赖网页前端
+- [ ] `inspection_supervisor` 订阅 `/inspection/agv/status`、`/inspection/arm/status`、`/inspection/state`，输出健康状态
 
 ---
 
-## P3（工程化）
+## P2（工程化）
 
-- [ ] 手眼标定工具链文档：`docs/HANDEYE_CALIB.md`（怎么采集、怎么跑、精度验证）
-- [ ] `grasp_perception` 模型管理：模型文件放 `share/` 外的统一位置，通过参数切换 YOLO/FoundationPose
-- [ ] 为关键模块补单测：`agv_map_parser`、`task_coordinator` 核心状态机、`grasp_perception` 的 TF 变换/IK 筛选
-- [ ] Bringup 参数体系收敛：所有 topic/service 名称与 namespace 通过 launch 控制，不在代码里散落字符串
-- [ ] 统一命名规范（`_prefix`）：`arm_driver` / `arm_controller` / `inspection_supervisor` 等历史违规处
 - [ ] `task_coordinator` 拆分 `CoordinatorCore`（无 ROS 依赖）+ `InterlockPolicy` + `RosAdapter`
-- [ ] `arm_controller` 拆分 `MoveItFacade` + `TrajectoryExecutor` + `DriverBridge`；解决回调阻塞问题
-- [ ] `grasp_perception` 拆分 `Detector`（YOLOv8/FoundationPose）+ `GraspPlanner`（候选生成 + 打分）+ `RosAdapter`
+- [ ] `arm_controller` 拆分 `MoveItFacade` + `TrajectoryExecutor` + `DriverBridge`
+- [ ] `hikvision_driver` 拆分 `HkSdkSession` + `GrabWorker` + `MonitorWorker` + `RosAdapter`
+- [ ] `defect_detector` 拆分 `DefectModel` + `Preprocess` + `Postprocess` + `RosAdapter`
+- [ ] 为关键逻辑补单测：站位 YAML 解析、深度 ROI 统计、局部点云拟合、状态机推进
+- [ ] Bringup 参数体系收敛：topic/service 名称、namespace、相机参数、微调参数全部从 YAML / launch 控制
+- [ ] 统一历史代码中的私有成员命名为 `_prefix`
 
 ---
 
-## 归档 / 弃用
+## 归档 / 非主线
 
-- [ ] `defect_detector` 从 `system.launch.py` 移除；包源码保留在仓库直到正式清理
-- [ ] `hikvision_driver` 默认不启用（`system.launch.py` 里 `use_hikvision:=false`），保留作为备用通用工业相机
-- [ ] `demo操作指南.md`（原 8 点位拍照 demo）迁移为 `docs/legacy/inspection_demo.md`，新 demo 写在 `docs/GRASP_DEMO.md`
-
----
-
-## 附录 A：巡检场景遗留任务（不再推进）
-
-以下是原巡检方向下的任务，保留供溯源/对照：
-
-- ~~`inspection_stations.yaml` 真机 8 点位标定~~（已在 demo 分支完成 8 点位，新方向用不到）
-- ~~`defect_detector` 填充实际检测算法~~
-- ~~深度补偿逻辑真机验证（±2cm 容差）~~
-- ~~`task_coordinator` 订阅 `defect_detector` 结果 topic~~
-- ~~端到端"导航+缺陷检测回看"链路~~
-
-历史 commit：`eb114c9` / `dc886cf` / `4b374bf` / `d08a805`（巡检 8 点位 demo）
+- [ ] `inspection_gateway`：保留源码，不作为当前论文和演示主线；若后续恢复网页再单独整理
+- [ ] `inspection_sim`：保留源码，不作为当前论文和演示主线；当前不依赖 fake driver
+- [x] `docs/GRASP_DEMO.md`：标记为历史抓取方向文档
+- [x] 清理主文档中的抓取方向残留表述

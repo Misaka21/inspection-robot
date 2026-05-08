@@ -27,7 +27,7 @@
 - `do_lines` (int[], [0,1,2,3]) — DO 对应的 GPIO line 号
 - `di_lines` (int[], [8,9,10,11]) — DI 对应的 GPIO line 号
 - `poll_interval_ms` (int, 50) — 轮询间隔
-- `use_fake` (bool, false) — true 时使用内存模拟，无需硬件
+- `use_fake` (bool, false) — 历史参数，true 时使用内存 mock，无需硬件；当前巡检主线通常不需要 DIO
 
 ## 3. 分层架构
 
@@ -37,7 +37,7 @@ Adapter 层 (gpio_adapter.py) — 所有 gpiod 调用隔离在此
 ```
 
 - `GpioAdapter`：真实硬件，使用 gpiod v2 API
-- `FakeGpioAdapter`：内存模拟，`use_fake=true` 时使用
+- `FakeGpioAdapter`：内存 mock，`use_fake=true` 时使用（仅调试）
 
 ## 4. 硬件引脚映射（研华 AGX / gpiochip3 / TCA9539）
 

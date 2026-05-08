@@ -1,85 +1,83 @@
 # hikvision_driver/CLAUDE.md
 
-> ⚠️ **状态：巡检场景主相机，抓取方向默认不启用（保留作为备用通用工业相机驱动）。**
->
-> 抓取方向的主相机是 **RealSense D435（eye-in-hand）**，由 `realsense_driver` 驱动。本包保留作为：
-> - 原 8 点位巡检 demo 的依赖（`demo操作指南.md` 历史流程）
-> - 未来若有需要宽视场/高分辨率/外部触发同步的工业相机做辅助视觉时复用
->
-> 抓取场景下 `system.launch.py` 默认 `use_hikvision:=false`。
-
-本文件约束 `hikvision_driver` 的分层与数据流，目标是：**MV SDK 调用与 ROS 逻辑解耦**，并保证触发拍照与监控线程可维护。
+本包是当前巡检方向的**主图像采集驱动**，负责通过海康工业相机采集缺陷检测图像。
 
 ## 1. 包职责与边界
 
 负责：
-- 通过海康 MV SDK 取图
-- 发布 `image_raw` + `camera_info`
-- 提供 `trigger_capture` 触发服务（触发模式）
+
+- 通过海康 MV SDK 取图。
+- 发布 `image_raw` + `camera_info`。
+- 提供 `trigger_capture` 触发服务。
+- 支持触发模式和基础相机参数配置。
 
 不负责：
-- 缺陷检测算法（`defect_detector`，巡检场景已不再使用）
-- 媒体落盘/媒体 id（应由网关或独立 capture_manager 管）
-- 抓取感知（由 `grasp_perception` 基于 RealSense 完成）
 
-## 2. Public ROS API（稳定接口）
+- 缺陷检测算法。
+- 巡检任务状态机。
+- 文件落盘和实验 CSV 统计。
+
+## 2. Public ROS API
 
 默认命名空间：`/inspection/hikvision`
 
 发布：
+
 - `image_raw`（image_transport）
-- `camera_info`（image_transport 携带）
+- `camera_info`
 
 服务：
+
 - `trigger_capture` (`std_srvs/srv/Trigger`)
 
-参数（示例，详见 `config/hikvision_driver.yaml`/bringup）：
+常用参数：
+
 - `sn` / `device_index`
-- `exposure_time` / `gain` / `frame_rate`
+- `exposure_time`
+- `gain`
+- `frame_rate`
 - `use_trigger_mode`
+- `camera_info_url`
 
-## 3. 推荐内部架构（避免所有逻辑堆在 Node）
+## 3. 推荐内部架构
 
-当前 `HikvisionDriverNode` 已经是 class，但方法很多，建议按职责拆 4 块：
+建议按职责拆分：
 
-1. `HkSdkSession`（SDK 资源 RAII）
-   - create/open/close/destroy handle
-   - set params / start/stop grab
-2. `GrabWorker`（取图线程）
-   - 负责 blocking grab + 像素格式转换
-   - 把结果交给 publisher（或通过 lock-free queue）
-3. `MonitorWorker`（监控线程）
-   - 掉线重连/失败计数/backoff
-4. `RosAdapter`（Node）
-   - 参数声明与动态参数处理
-   - pub/service 创建
-   - trigger 回调只设置 flag，不做重 IO
+1. `HkSdkSession`
+   - SDK 句柄 create/open/close/destroy。
+   - 参数设置。
+2. `GrabWorker`
+   - blocking grab、像素格式转换、发布图像。
+3. `MonitorWorker`
+   - 掉线重连、失败计数、backoff。
+4. `RosAdapter`
+   - 参数声明、pub/service 创建、trigger flag。
 
 约束：
-- 禁止在 ROS service 回调里直接调用一串 MV SDK 阻塞操作（会卡 executor）
-- 必须：所有 SDK 句柄生命周期集中管理，避免异常路径泄漏
 
-## 4. 数据流
+- service 回调不要直接执行长时间阻塞 SDK 操作。
+- SDK 句柄生命周期集中管理。
+- `trigger_capture` 成功后应能让 `task_coordinator` 判断是否收到新图像。
 
-```mermaid
-flowchart LR
-  Trigger["trigger_capture(srv)"] -->|set trigger_flag| Node["RosAdapter(Node)"]
-  Node --> Worker["GrabWorker thread"]
-  Worker --> SDK["MV SDK"]
-  Worker -->|publish image_raw| ROS["ROS graph"]
+## 4. 与巡检状态机的关系
+
+`CAPTURING` 阶段目标顺序：
+
+```text
+task_coordinator -> hikvision/trigger_capture
+hikvision_driver -> image_raw
+defect_detector 缓存该图像
+task_coordinator -> perception/detect_defect
 ```
 
-## 5. 与"结果回显/媒体"对齐的建议
+driver 只负责可靠发布图像，不负责检测和结果管理。
 
-driver 只负责把图像变成 ROS 消息；不要在 driver 内做文件管理。
+## 5. 文档与 TODO 维护
 
-若抓取场景里有"高分辨率辅助图"需求（例如观察位再拉一张工业相机图做记录），建议：
-- 由 `task_coordinator` 触发 `trigger_capture`
-- `capture_manager`（规划中）订阅 `image_raw` 落盘成 `media_id`
-- `inspection_gateway` 通过 `DownloadMedia/ListCaptures` 对外提供访问
+修改 public ROS API、参数名或触发行为时，必须同步更新：
 
-## 6. 文档与 TODO 维护（必须）
+- `TODO.md`
+- `docs/ARCHITECTURE.md`
+- `docs/IMPLEMENTATION_STATUS.md`
+- `src/task_coordinator/CLAUDE.md`
 
-- 修改 public ROS API（topic/service/参数）时，必须同步更新：本文件、包内 launch/config、`docs/ARCHITECTURE.md`、仓库根 `TODO.md`
-- 新增功能但未实现完：必须把未完成项写入 `TODO.md`（带清晰落点与验收标准）
-- 完成 TODO：必须勾选并在提交信息/PR 描述里说明验证方式（真机/仿真/回放）

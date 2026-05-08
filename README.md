@@ -1,36 +1,44 @@
 # inspection-robot
 
-机器人端 ROS 2 工作空间：**复合移动机器人抓取系统**。包含 AGV / 机械臂 / 相机 / DIO 驱动，以及感知 / 规划 / 编排等功能包。
+机器人端 ROS 2 工作空间：**基于移动协作机械臂的大型工件视觉检测/巡检系统**。包含 AGV、机械臂、RealSense 深度相机、海康工业相机、缺陷检测与任务编排等功能包。
 
-> **历史说明**：仓库名与大部分 `inspection_*` 包名来自早期"大型工件视觉检测/巡检"场景。课题已调整为"复合机器人抓取"，保留旧名是为了避免大范围破坏性重命名；新增能力一律使用功能命名（`grasp_perception` / `gripper_driver` 等）。
+> 当前课题方向已改回 `fa97514` 之前的巡检/视觉检测方向。仓库中保留的 `inspection_gateway`、`inspection_sim`、`dio_driver` 等包属于历史工程能力或可选辅助模块，不再作为论文主线；本文档默认不依赖网页前端和 fake driver。
 
 ## 0. 硬件与任务
 
-- AGV（仙宫智能）+ 协作机械臂（大族 E05 / Elfin5）+ RealSense 深度相机（**eye-in-hand**，装末端）+ 气动二指夹爪
+- AGV（仙宫智能）+ 协作机械臂（大族 E05 / Elfin5）+ RealSense 深度相机（末端安装）+ 海康工业相机（末端安装）
 - 算力：Jetson Orin AGX 64G
-- 目标任务：**已知工业件的单次抓取 + 放置**
+- 目标任务：**大型工件多站位自动巡检、工作距微调、图像采集与缺陷检测**
 
-系统整体分工（建议先看 `docs/WORKSPACE_OVERVIEW.md`）：
+主执行链路：
 
-`inspection-site -> inspection_gateway(REST/WS) -> ROS2(task_coordinator + drivers/controllers + 感知/夹爪)`
+```text
+ROS2 CLI / launch / RViz
+  -> task_coordinator
+  -> agv_driver / arm_controller / realsense_driver / hikvision_driver / defect_detector
+```
 
-上位机与机器人之间的"任务/进度/状态/事件/媒体"语义以 `inspection_gateway/api/models.py` 为准，本仓库负责把设备/感知/控制能力封装为 ROS 2 接口并在机器人端落地执行。
+## 1. 当前阶段的约束
 
-## 1. 当前阶段的约束（很重要）
-
-1. **API 优先级（从高到低）**
-   - `inspection_gateway/api/models.py`：上位机与机器人之间的对外契约（算法与上位机以此为准）
-   - `inspection_interface`：机器人内部 ROS2 msg/srv（对齐网关语义）
-   - 设备厂商协议（AGV TCP API / RealSense SDK / 相机 SDK / GPIO）：只允许在各自 `*_driver` 内部使用
-2. **坐标系约定**
+1. **机器人内部接口优先**
+   - `inspection_interface`：机器人内部 ROS2 msg/srv 的主要契约。
+   - `task_coordinator`：巡检任务状态机的执行入口。
+   - 厂商协议（AGV TCP API、相机 SDK、机械臂 SDK）只允许在各自 driver 内部使用。
+2. **不以网页为主线**
+   - 当前论文与系统演示默认通过 ROS2 launch、RViz、ros2 CLI 和脚本完成。
+   - `inspection_gateway` 保留为历史/可选模块，不作为论文必须功能。
+3. **不以 fake driver 为主线**
+   - 当前验收以真机、半实物或离线数据回放为准。
+   - `inspection_sim` 若存在，仅作为历史辅助，不作为论文系统架构依赖。
+4. **坐标系约定**
    - AGV 位姿与导航目标使用 `map` 坐标系（单位 m/rad）。
-   - 机械臂基座 `arm_base` 相对 `base_link` 静态标定。
-   - 手眼：相机 `camera_color_optical_frame` 相对 `tool0` 由手眼标定得到。
-   - 抓取位姿对外统一表达到 `arm_base` 或 `base_link`；感知内部在 `camera_color_optical_frame` 即可，跨包前先变换。
-3. **命名空间约定**
-   - 建议所有节点运行在 `/inspection/*` 下（历史命名保留）。
-   - **跨包/对外 ROS API**：使用相对话题名（不以 `/` 或 `~` 开头），并通过 launch 的 `namespace` 固定前缀。
-   - `~/` 仅用于节点真正"私有"的内部调试话题/服务。
+   - 机械臂基座 `arm_base` 相对 `base_link` 需要静态标定。
+   - 末端相机外参 `tool0 -> hikvision_frame` / `tool0 -> camera_link` 需要统一配置。
+   - 深度微调阶段使用 RealSense 深度图估计相机到工件局部表面的工作距离。
+5. **命名空间约定**
+   - 建议所有节点运行在 `/inspection/*` 下。
+   - 跨包 ROS API 使用相对话题名，通过 launch namespace 固定前缀。
+   - `~/` 仅用于节点私有调试接口。
 
 ## 2. 环境与构建
 
@@ -39,9 +47,8 @@
 - GCC 11+（C++17）
 - Python 3.10+
 
-构建（在 `inspection-robot/` 目录）：
-
 ```bash
+source /opt/ros/humble/setup.bash
 colcon build --symlink-install
 source install/setup.bash
 ```
@@ -51,188 +58,171 @@ source install/setup.bash
 ```bash
 sudo apt install ros-humble-realsense2-camera ros-humble-librealsense2
 sudo apt install ros-humble-moveit
-pip install ultralytics opencv-python open3d   # grasp_perception 规划使用
+
+# 缺陷检测算法可按最终路线选择安装
+pip install ultralytics opencv-python
 ```
 
 ## 3. 启动方式
 
-驱动集合（优先用 bringup 统一启动）：
+驱动集合：
 
 ```bash
 ros2 launch inspection_bringup drivers.launch.py
 ```
 
-一键启动（逐步补齐中）：
+完整巡检系统：
 
 ```bash
 ros2 launch inspection_bringup system.launch.py
 ```
 
-单包启动（调试/联调时常用）：
+单包调试：
 
 ```bash
 ros2 launch agv_driver agv_driver.launch.py
 ros2 launch arm_driver arm_driver.launch.py
+ros2 launch hikvision_driver hikvision_driver.launch.py
 ros2 launch realsense_driver realsense.launch.py
 ros2 launch arm_controller arm_controller.launch.py
+ros2 launch task_coordinator task_coordinator.launch.py
 ```
 
-bringup 是统一启动入口；单包 launch 默认读取包内 `config/*.yaml`。如需复用 bringup 的配置，直接在 launch 里传 `params_file:=/absolute/path/to/*.yaml`。
+## 4. 功能包索引
 
-## 4. 功能包索引（以实现为准）
-
-| 包 | 职责一句话 | 说明文档 |
+| 包 | 主线职责 | 状态 |
 |---|---|---|
-| `agv_driver` | AGV 底盘 TCP 驱动：`goal_pose/cmd_vel` -> TCP，下发导航并发布状态 | `src/agv_driver/README.md` |
-| `arm_driver` | 机械臂 EtherCAT 驱动：关节指令/状态与使能等服务 | `src/arm_driver/README.md` |
-| `realsense_driver` | vendoring 官方 `realsense2_camera` 并提供 bringup 配置（核心传感器，eye-in-hand） | `src/realsense_driver/README.md` |
-| `dio_driver` | 工控机板载 DIO（TCA9539 GPIO 扩展）底层驱动，提供 `set_output`/`status` | `src/dio_driver/CLAUDE.md` |
-| `gripper_driver` | 气动二指夹爪语义层（open/close），底层调用 `dio_driver` **[规划新增]** | — |
-| `arm_controller` | 机械臂控制层（MoveIt2，Pilz LIN 用于 PRE_GRASP→GRASP 直线段） | — |
-| `grasp_perception` | 目标检测 + 抓取位姿生成（YOLOv8+深度 / 6D 位姿估计） **[规划新增]** | — |
-| `task_coordinator` | 抓取任务状态机编排 | `src/task_coordinator/CLAUDE.md` |
-| `inspection_interface` | 机器人内部 msg/srv 定义（对齐网关语义） | `src/inspection_interface/msg`、`src/inspection_interface/srv` |
-| `inspection_gateway` | FastAPI REST/WS 网关：HMI <-> ROS2 桥接 | `src/inspection_gateway/CLAUDE.md`、`docs/INSPECTION_GATEWAY_DESIGN.md` |
-| `inspection_bringup` | launch/配置统一入口 | `src/inspection_bringup/launch`、`src/inspection_bringup/config` |
-| `inspection_supervisor` | 系统健康监控（可选） | `src/inspection_supervisor/CLAUDE.md` |
-| `inspection_sim` | 无硬件端到端联调 fake drivers + sim launch | `src/inspection_sim/README.md` |
-| `hikvision_driver` | 海康工业相机驱动 **[巡检遗留，抓取场景默认不启用，仅保留备用]** | — |
-| `defect_detector` | 图像缺陷检测 **[巡检遗留，抓取场景不使用，待清理]** | — |
+| `agv_driver` | AGV 底盘 TCP 驱动，下发站位导航并发布状态 | 主线 |
+| `arm_driver` | 机械臂底层驱动，发布关节状态与基础控制服务 | 主线 |
+| `arm_controller` | MoveIt2 运动控制，提供 `move_to_joints` / `move_to_pose` | 主线 |
+| `realsense_driver` | RealSense 深度相机适配，提供工作距微调用深度图 | 主线 |
+| `hikvision_driver` | 海康工业相机驱动，提供触发拍照与图像发布 | 主线 |
+| `defect_detector` | 工业图像缺陷检测，输出结构化缺陷结果 | 主线，算法待补 |
+| `task_coordinator` | 多站位巡检状态机编排 | 主线 |
+| `inspection_interface` | ROS2 msg/srv 定义 | 主线 |
+| `inspection_bringup` | launch 与参数配置入口 | 主线 |
+| `inspection_supervisor` | 系统健康监控 | 可选 |
+| `inspection_gateway` | FastAPI 网关 | 历史/可选，不作为当前论文主线 |
+| `inspection_sim` | fake driver 仿真 | 历史/可选，不作为当前论文主线 |
+| `dio_driver` | DIO 通用驱动 | 非巡检主线，可保留 |
 
-## 5. 系统架构（当前工程视角）
+## 5. 系统架构
 
 ```mermaid
 flowchart TB
   subgraph Drivers["Drivers"]
-    D1["agv_driver"]
-    D2["arm_driver"]
-    D3["realsense_driver (eye-in-hand)"]
-    D4["dio_driver (DO/DI)"]
+    AGV["agv_driver"]
+    ARM["arm_driver"]
+    RS["realsense_driver"]
+    HK["hikvision_driver"]
   end
 
   subgraph Control["Control"]
-    C1["arm_controller (MoveIt2)"]
-    C2["gripper_driver (open/close)"]
+    AC["arm_controller"]
   end
 
   subgraph Algo["Perception"]
-    A1["grasp_perception"]
+    DET["defect_detector"]
   end
 
   subgraph Coord["Coordination"]
-    CO1["task_coordinator"]
+    CO["task_coordinator"]
   end
 
   subgraph Infra["Infra"]
-    I1["inspection_interface"]
-    I2["inspection_bringup"]
-    I3["inspection_supervisor"]
-    I4["inspection_gateway"]
+    IF["inspection_interface"]
+    BR["inspection_bringup"]
+    SUP["inspection_supervisor"]
   end
 
-  D3 --> A1
-  A1 --> CO1
-  D2 --> C1
-  D4 --> C2
-  CO1 --> D1
-  CO1 --> C1
-  CO1 --> C2
-  CO1 --> A1
-  CO1 --> I4
+  CO --> AGV
+  CO --> AC
+  RS --> CO
+  CO --> HK
+  HK --> DET
+  DET --> CO
+  AGV --> CO
+  ARM --> AC
+  ARM --> CO
 ```
 
-## 6. 抓取任务 pipeline（状态机）
+## 6. 巡检任务 pipeline
 
-```
+```text
 IDLE
- └─ NAV_TO_PICK          AGV 到抓取点位（可选）
-     └─ ARM_TO_OBSERVE    机械臂到观察位
-         └─ CAPTURE_RGBD  RealSense 抓一帧 RGB + Depth + 内参
-             └─ PERCEIVE  grasp_perception → grasp_pose(camera_frame)
-                 └─ TRANSFORM_IK  → arm_base + MoveIt 可达性
-                     └─ PRE_GRASP  Pilz LIN 到抓取点上方 10cm
-                         └─ GRASP       Pilz LIN 直线下压
-                             └─ CLOSE_GRIPPER
-                                 └─ LIFT
-                                     └─ NAV_TO_PLACE（可选）
-                                         └─ PLACE / OPEN_GRIPPER / HOME
-                                             └─ IDLE
+  -> MOVING_TO_STATION    AGV 到 YAML 配置站位
+  -> ARM_PRESET           机械臂到预设观测关节角
+  -> DEPTH_ADJUST         RealSense 测距，末端工作距微调
+  -> CAPTURING            海康相机拍照 + defect_detector 检测
+  -> 下一站位 / COMPLETED
 
-任一阶段失败 → RECOVERY（重拍/重规划 N 次 → 超限终止并发事件）
+任一阶段失败 -> FAILED
+支持 PAUSE / RESUME / STOP
 ```
 
-详细说明见 `docs/ARCHITECTURE.md` 与 `src/task_coordinator/CLAUDE.md`。
+站位配置示例见 `src/inspection_bringup/config/inspection_stations.yaml`：
 
-## 7. 导航地图（GetNavMap）与 AGV 地图能力
-
-HMI 的导航视图需要"底图 + 分辨率 + 原点"，这些信息来源于 AGV 地图文件（位于底盘控制器上）。
-
-本工程分层约束：由 `agv_driver` 封装厂商 TCP API，然后由 `inspection_gateway`/`task_coordinator` 调用：
-
-- `1300 robot_status_map_req`：查询当前载入地图名与 md5、保存的地图列表
-  参考：`src/agv_driver/docs/agv_api/API/TCP-IP API/机器人状态API/查询机器人载入的地图以及储存的地图.md`
-- `4011 robot_config_downloadmap_req`：按 `map_name` 下载 `.smap`（JSON 文本）
-  参考：`src/agv_driver/docs/agv_api/API/TCP-IP API/机器人配置API/从机器人下载地图.md`
-- `.smap` 格式说明（坐标单位为米，地图坐标系即世界坐标系）
-  参考：`src/agv_driver/docs/agv_api/API/TCP-IP API/机器人配置API/地图格式说明.md`
-
-对内 ROS2 接口建议固定为一个 service（供 `inspection_gateway` 调用）：
-
-- `/inspection/agv/get_nav_map`：`inspection_interface/srv/GetNavMap`
-
-对外接口（REST/WS）侧的像素投影约定以 `inspection_gateway/api/models.py` 的 `NavMapInfo` 为准。
-
-## 8. TF 约定（最小集合）
-
-```
-map                              ← agv_driver 发布 map -> base_link
- └─ base_link (AGV)
-     └─ arm_base                  ← 静态 TF（机械臂安装标定，必须补齐）
-         └─ elfin_link1..6
-             └─ tool0              ← URDF 正解
-                 ├─ gripper_tip    ← 静态 TF（气动夹爪末端 offset）
-                 └─ camera_link    ← 手眼标定（tool0 -> camera_link）
-                     └─ camera_color_optical_frame  ← RealSense 发布
+```yaml
+stations:
+  - name: "station_1"
+    agv_pose: {x: 1.0, y: 2.0, z: 0.0, yaw: 0.5}
+    arm_joints: [0.0, -0.5, 1.2, 0.0, 0.8, 0.0]
+    target_distance: 0.30
+    distance_tolerance: 0.02
+    adjust_axis: "z"
 ```
 
-关键标定：
-- `base_link -> arm_base`：静态标定 yaml，由 `inspection_bringup` 静态 TF 发布
-- `tool0 -> camera_link`：手眼标定（推荐 `easy_handeye2` + ChArUco），存 yaml 启动时加载
-- `tool0 -> gripper_tip`：夹爪机械 offset（量一次写死）
+## 7. 工作距微调算法
 
-> 注意：drivers.launch.py 中原 `tool0 -> hikvision_frame` 的静态 TF 示例基于工业相机，抓取场景已不再使用；替换为 `tool0 -> camera_link` + `tool0 -> gripper_tip`。
+巡检方向的核心算法之一是：**基于 RGB-D 局部深度/局部点云的非平面工件工作距自适应微调**。
 
-## 9. 消息/服务定义（不在 README 重复抄写）
+基础实现：
 
-为了避免 README 和代码出现"字段不一致"，本仓库不在此处复制 `.msg/.srv` 内容。
+1. 机械臂到预设观测位。
+2. 读取 RealSense aligned depth。
+3. 在目标 ROI 内提取有效深度。
+4. 使用中值或局部点云拟合估计当前工作距。
+5. 与 `target_distance` 比较。
+6. 若超过 `distance_tolerance`，调用 `arm_controller/move_to_pose` 做小范围位姿修正。
+7. 重复直到满足容差或超过最大重试次数。
 
-- 机器人内部接口：`src/inspection_interface/msg`、`src/inspection_interface/srv`
-- 对外契约：`src/inspection_gateway/inspection_gateway/api/models.py`（以该文件为准）
+增强实现（论文建议）：
 
-新增（规划）消息/服务见 `TODO.md`，例如：
-- `srv/PerceiveGrasp`：感知接口，输入可选 `object_class`，输出 `grasp_pose` 候选列表
-- `srv/Grasp`（或 action）：面向上位机的"抓取任务"入口，替代原 `StartInspection`
+- 将 ROI 深度反投影为点云。
+- 使用滤波剔除离群点。
+- 用 PCA / RANSAC 拟合局部切平面。
+- 计算相机到局部切平面的距离，不假设整个工件是平面。
+- 将距离误差转换成机械臂末端修正量。
 
-## 10. 测试与联调建议（按工程阶段）
+## 8. 缺陷检测算法
 
-本项目更关心"能把系统跑起来并可定位问题"，因此只保留最实用的三类验证：
+`defect_detector` 作为主算法包，建议按以下路线实现：
 
-1. A 级：纯逻辑单测（`colcon test` 能跑，且不依赖真机）
-2. B 级：离线回放/仿真（`inspection_sim`）
-3. C 级：真机联调清单（更重要，但不进 CI）
+- 有缺陷标注数据：使用 YOLOv8-seg 做缺陷检测/实例分割。
+- 缺陷样本少：使用 PatchCore / PaDiM 做异常检测，输出热力图并阈值分割。
+- 后处理输出缺陷类别、置信度、bbox/mask、面积、中心位置和标注图。
 
-各包"功能性验证清单"（不做算法正确性判断，只验证接口/联通/基本行为）：
+当前代码中 `defect_detector` 仍是骨架，正式论文实验前必须补齐真实推理与结果统计。
 
-- `agv_driver`：连通；下发导航目标成功；到位与停止判定可用（安全场地）。
-- `arm_driver`：EtherCAT 连通；关节与驱动状态更新；基础控制服务可用。
-- `realsense_driver`：color/depth/aligned_depth/intrinsics/TF 发布稳定。
-- `dio_driver`：`set_output` 能驱动 DO 灯/电磁阀；`status` 能读回 DI。
-- `gripper_driver`（新）：`open` / `close` 服务能带动夹爪实物动作。
-- `grasp_perception`（新）：给定样例 RGBD → 输出合理抓取候选（可 rviz 可视化）。
-- `arm_controller`：MoveIt2 到 `move_to_pose` + Pilz LIN 短距直线可达。
-- `task_coordinator`：无硬件（`inspection_sim`）跑通抓取 pipeline。
+## 9. 结果与验证
 
-## 11. 代码规范（必须遵守）
+当前主线不依赖网页。结果建议通过以下方式验证与展示：
+
+- RViz：查看 TF、AGV/机械臂位姿、相机坐标系。
+- ros2 topic：查看 `/inspection/state`、相机图像、缺陷结果。
+- ros2 service：启动/暂停/停止任务，调用相机触发与运动控制服务。
+- 文件落盘：保存原图、标注图和实验 CSV，用于论文统计。
+
+建议实验指标：
+
+- AGV 到位误差。
+- 机械臂重复定位误差。
+- 深度微调前后工作距误差。
+- 不同曲率/倾角表面的局部距离估计误差。
+- 缺陷检测 Precision、Recall、mAP、F1。
+- 单站位耗时与整轮巡检耗时。
+
+## 10. 代码规范
 
 1. 格式化：工作区根目录 `.clang-format`
 2. 静态检查：工作区根目录 `.clang-tidy`
