@@ -5,6 +5,8 @@
     planning_time: 5.0
 
     # MoveIt speed scaling (0~1). Can be overridden per request or via ~/velocity_scaling.
+    # acceleration_scaling 是点位间移动耗时的主要瓶颈（短移动多为三角形速度曲线，
+    # 到不了速度上限）；确认轨迹平滑无震动后可逐步提到 0.8。
     velocity_scaling: 0.5
     acceleration_scaling: 0.5
 

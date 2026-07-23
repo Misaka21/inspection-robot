@@ -18,7 +18,8 @@
 默认命名空间：`/inspection/arm`
 
 订阅：
-- `joint_cmd` (`sensor_msgs/msg/JointState`)：关节目标
+- `joint_cmd` (`sensor_msgs/msg/JointState`)：关节目标。`position` 必填；
+  `velocity` 可选（长度与 `position` 一致时作为速度前馈写入 PDO 的 VelFF，缺省按 0 处理，等效纯位置模式）
 
 发布：
 - `/joint_states` (`sensor_msgs/msg/JointState`)

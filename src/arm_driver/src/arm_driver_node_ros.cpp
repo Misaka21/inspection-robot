@@ -69,8 +69,9 @@ void ArmDriverNode::on_joint_command(const sensor_msgs::msg::JointState::SharedP
   }
 
   std::vector<double> targets;
+  std::vector<double> velocity_targets;
   std::vector<bool> has_target;
-  if (!fill_command_targets_locked(*msg, targets, has_target)) {
+  if (!fill_command_targets_locked(*msg, targets, velocity_targets, has_target)) {
     RCLCPP_WARN_THROTTLE(
       node_->get_logger(),
       *node_->get_clock(),
@@ -84,7 +85,9 @@ void ArmDriverNode::on_joint_command(const sensor_msgs::msg::JointState::SharedP
     if (!has_target[internal_idx]) {
       continue;
     }
-    axis_from_internal_index(internal_idx).command_position = targets[internal_idx];
+    auto & axis = axis_from_internal_index(internal_idx);
+    axis.command_position = targets[internal_idx];
+    axis.command_velocity = velocity_targets[internal_idx];
   }
 
   if (!write_joint_commands_locked()) {

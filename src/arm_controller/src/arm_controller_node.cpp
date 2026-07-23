@@ -42,6 +42,32 @@ int64_t duration_to_ns(const builtin_interfaces::msg::Duration & d)
   return static_cast<int64_t>(d.sec) * 1000000000LL + static_cast<int64_t>(d.nanosec);
 }
 
+struct InterpResult
+{
+  double position;
+  double velocity;
+};
+
+// 三次 Hermite 插值：s ∈ [0,1] 为段内归一化时间，h 为段时长（秒）。
+// 同时利用轨迹点的位置和速度，保证在轨迹点处速度连续（C1），
+// 消除线性插值在每个轨迹点处的速度阶跃（加速度冲击是机械臂震动/噪音的来源）。
+InterpResult hermite_interpolate(
+  const double p0, const double v0, const double p1, const double v1,
+  const double s, const double h)
+{
+  const double s2 = s * s;
+  const double s3 = s2 * s;
+  InterpResult r;
+  r.position =
+    (2.0 * s3 - 3.0 * s2 + 1.0) * p0 + (s3 - 2.0 * s2 + s) * h * v0 +
+    (-2.0 * s3 + 3.0 * s2) * p1 + (s3 - s2) * h * v1;
+  const double dp_ds =
+    (6.0 * s2 - 6.0 * s) * p0 + (3.0 * s2 - 4.0 * s + 1.0) * h * v0 +
+    (6.0 * s - 6.0 * s2) * p1 + (3.0 * s2 - 2.0 * s) * h * v1;
+  r.velocity = dp_ds / h;
+  return r;
+}
+
 }  // namespace
 
 class ArmControllerNode
@@ -310,62 +336,90 @@ private:
     return true;
   }
 
-  // 在相邻轨迹点之间做线性插值，以固定频率（interpolation_hz）下发指令，
-  // 避免位置跳变导致电机"机关枪"式抖动。
+  // 在相邻轨迹点之间做三次 Hermite 插值，以固定频率（kInterpolationHz）下发指令。
+  // MoveIt 时间参数化（TOTG）输出的轨迹点自带 velocity，插值必须用上，
+  // 否则位置折线在每个轨迹点处速度阶跃（加速度冲击），导致电机震动和噪音。
   static constexpr double kInterpolationHz = 100.0;
 
   bool execute_trajectory(const trajectory_msgs::msg::JointTrajectory & traj)
   {
-    const auto points_n = traj.points.size();
+    const size_t points_n = traj.points.size();
     if (points_n == 0) {
       return true;
     }
 
     const size_t n_joints = traj.joint_names.size();
-    const int64_t step_ns = static_cast<int64_t>(1e9 / kInterpolationHz);
-
-    for (size_t i = 1; i < points_n && rclcpp::ok(); ++i) {
-      const auto & p0 = traj.points[i - 1];
-      const auto & p1 = traj.points[i];
-      if (p0.positions.size() != n_joints || p1.positions.size() != n_joints) {
+    for (const auto & point : traj.points) {
+      if (point.positions.size() != n_joints) {
         last_error_ = "trajectory point size mismatch";
         return false;
       }
+    }
 
+    const int64_t total_ns = duration_to_ns(traj.points.back().time_from_start);
+    const auto step = std::chrono::nanoseconds(static_cast<int64_t>(1e9 / kInterpolationHz));
+    const auto t_start = std::chrono::steady_clock::now();
+
+    size_t seg = 0;         // 当前段：traj.points[seg] -> traj.points[seg + 1]
+    size_t last_progress_seg = 0;
+    // 绝对时基推进：next_tick 固定步长递增 + sleep_until，
+    // 不会像 sleep_for 那样把发布耗时和段时长取整误差累积成执行变慢/速度不均
+    for (auto next_tick = t_start; points_n > 1 && rclcpp::ok(); next_tick += step) {
+      std::this_thread::sleep_until(next_tick);
+      const int64_t t_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now() - t_start).count();
+      if (t_ns >= total_ns) {
+        break;
+      }
+
+      while (seg + 2 < points_n && duration_to_ns(traj.points[seg + 1].time_from_start) <= t_ns) {
+        ++seg;
+      }
+      const auto & p0 = traj.points[seg];
+      const auto & p1 = traj.points[seg + 1];
       const int64_t t0_ns = duration_to_ns(p0.time_from_start);
       const int64_t t1_ns = duration_to_ns(p1.time_from_start);
-      const int64_t seg_ns = t1_ns - t0_ns;
-
-      if (seg_ns <= 0) {
+      if (t1_ns <= t0_ns) {
         continue;
       }
 
-      // 在 [p0, p1] 之间按 step_ns 步长线性插值
-      for (int64_t elapsed = 0; elapsed < seg_ns && rclcpp::ok(); elapsed += step_ns) {
-        const double alpha = static_cast<double>(elapsed) / static_cast<double>(seg_ns);
+      const double h = static_cast<double>(t1_ns - t0_ns) * 1e-9;
+      const double s = std::clamp(
+        static_cast<double>(t_ns - t0_ns) / static_cast<double>(t1_ns - t0_ns), 0.0, 1.0);
+      const bool has_velocities =
+        p0.velocities.size() == n_joints && p1.velocities.size() == n_joints;
 
-        sensor_msgs::msg::JointState cmd;
-        cmd.header.stamp = node_->now();
-        cmd.name = traj.joint_names;
-        cmd.position.resize(n_joints);
-        for (size_t j = 0; j < n_joints; ++j) {
-          cmd.position[j] = p0.positions[j] + alpha * (p1.positions[j] - p0.positions[j]);
+      sensor_msgs::msg::JointState cmd;
+      cmd.header.stamp = node_->now();
+      cmd.name = traj.joint_names;
+      cmd.position.resize(n_joints);
+      cmd.velocity.resize(n_joints);
+      for (size_t j = 0; j < n_joints; ++j) {
+        if (has_velocities) {
+          const auto r = hermite_interpolate(
+            p0.positions[j], p0.velocities[j], p1.positions[j], p1.velocities[j], s, h);
+          cmd.position[j] = r.position;
+          cmd.velocity[j] = r.velocity;
+        } else {
+          cmd.position[j] = p0.positions[j] + s * (p1.positions[j] - p0.positions[j]);
+          cmd.velocity[j] = (p1.positions[j] - p0.positions[j]) / h;
         }
-        joint_cmd_pub_->publish(cmd);
-
-        std::this_thread::sleep_for(std::chrono::nanoseconds(step_ns));
       }
+      joint_cmd_pub_->publish(cmd);
 
-      // 进度
-      publish_progress(static_cast<double>(i) / static_cast<double>(points_n - 1));
+      if (seg != last_progress_seg) {
+        last_progress_seg = seg;
+        publish_progress(static_cast<double>(seg) / static_cast<double>(points_n - 1));
+      }
     }
 
-    // 确保最后一个点精确到达
+    // 确保最后一个点精确到达（终点速度显式给 0，驱动侧速度前馈随之清零）
     const auto & last = traj.points.back();
     sensor_msgs::msg::JointState cmd;
     cmd.header.stamp = node_->now();
     cmd.name = traj.joint_names;
     cmd.position = last.positions;
+    cmd.velocity.assign(n_joints, 0.0);
     joint_cmd_pub_->publish(cmd);
 
     return rclcpp::ok();
