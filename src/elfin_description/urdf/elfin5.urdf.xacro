@@ -74,7 +74,7 @@
     <parent link="elfin_base" />
     <child link="elfin_link1" />
     <axis xyz="0 0 1" />
-    <limit lower="-3.14" upper="3.14" effort="420" velocity="1.57" />
+    <limit lower="-3.14" upper="3.14" effort="420" velocity="3.1416" />
   </joint>
 
   <link name="elfin_link2">
@@ -106,7 +106,7 @@
     <parent link="elfin_link1" />
     <child link="elfin_link2" />
     <axis xyz="0 0 1" />
-    <limit lower="-2.35" upper="2.35" effort="420" velocity="1.57" />
+    <limit lower="-2.35" upper="2.35" effort="420" velocity="3.1416" />
   </joint>
 
   <link name="elfin_link3">
@@ -138,7 +138,7 @@
     <parent link="elfin_link2" />
     <child link="elfin_link3" />
     <axis xyz="0 0 1" />
-    <limit lower="-2.61" upper="2.61" effort="200" velocity="1.57" />
+    <limit lower="-2.61" upper="2.61" effort="200" velocity="3.1416" />
   </joint>
 
   <link name="elfin_link4">
@@ -170,7 +170,7 @@
     <parent link="elfin_link3" />
     <child link="elfin_link4" />
     <axis xyz="0 0 1" />
-    <limit lower="-3.14" upper="3.14" effort="200" velocity="1.57" />
+    <limit lower="-3.14" upper="3.14" effort="200" velocity="3.1416" />
   </joint>
 
   <link name="elfin_link5">
@@ -202,7 +202,7 @@
     <parent link="elfin_link4" />
     <child link="elfin_link5" />
     <axis xyz="0 0 1" />
-    <limit lower="-2.56" upper="2.56" effort="69" velocity="1.57" />
+    <limit lower="-2.56" upper="2.56" effort="69" velocity="3.4907" />
   </joint>
 
   <link name="elfin_link6">
@@ -234,7 +234,7 @@
     <parent link="elfin_link5" />
     <child link="elfin_link6" />
     <axis xyz="0 0 1" />
-    <limit lower="-3.14" upper="3.14" effort="69" velocity="1.57" />
+    <limit lower="-3.14" upper="3.14" effort="69" velocity="3.4907" />
   </joint>
 
   <link name="elfin_end_link"/>

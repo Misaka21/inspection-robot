@@ -60,6 +60,28 @@ def generate_launch_description():
         "robot_description_semantic": load_file("elfin5_ros2_moveit2", "config/elfin5.srdf")
     }
 
+    # Joint limits (MoveIt 时间参数化依赖；URDF 只提供 velocity，没有 acceleration，
+    # 不加这段的话 MoveIt 加速度默认 1.0 rad/s²，再怎么调 acceleration_scaling 也慢)
+    # 固件上限：速度 180/200 deg/s (3.1416/3.4907 rad/s)，加速度 360 deg/s² (6.28 rad/s²)
+    joint_limits = {
+        "robot_description_planning": {
+            "joint_limits": {
+                "elfin_joint1": {"has_velocity_limits": True, "max_velocity": 3.1416,
+                                 "has_acceleration_limits": True, "max_acceleration": 5.0},
+                "elfin_joint2": {"has_velocity_limits": True, "max_velocity": 3.1416,
+                                 "has_acceleration_limits": True, "max_acceleration": 5.0},
+                "elfin_joint3": {"has_velocity_limits": True, "max_velocity": 3.1416,
+                                 "has_acceleration_limits": True, "max_acceleration": 5.0},
+                "elfin_joint4": {"has_velocity_limits": True, "max_velocity": 3.1416,
+                                 "has_acceleration_limits": True, "max_acceleration": 5.0},
+                "elfin_joint5": {"has_velocity_limits": True, "max_velocity": 3.4907,
+                                 "has_acceleration_limits": True, "max_acceleration": 5.0},
+                "elfin_joint6": {"has_velocity_limits": True, "max_velocity": 3.4907,
+                                 "has_acceleration_limits": True, "max_acceleration": 5.0},
+            }
+        }
+    }
+
     kinematics_yaml = load_yaml("elfin5_ros2_moveit2", "config/kinematics.yaml")
 
     # ── OMPL planning pipeline (for move_group) ──
@@ -103,6 +125,7 @@ def generate_launch_description():
             robot_description,
             robot_description_semantic,
             kinematics_yaml,
+            joint_limits,
             ompl_planning_pipeline_config,
             trajectory_execution,
             planning_scene_monitor_parameters,
