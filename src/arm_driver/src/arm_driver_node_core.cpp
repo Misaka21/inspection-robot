@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <numeric>
 #include <stdexcept>
 
@@ -182,6 +183,19 @@ int32_t ArmDriverNode::position_to_counts(const double position, const AxisState
   return static_cast<int32_t>(cmd_count);
 }
 
+// 速度前馈（VelFF）换算：符号约定与 counts_to_velocity 互逆（-1 系数），
+// 与大族原版 elfin_ros_control 的 elfin_hardware_interface 写法一致。
+// PDO 字段为 int16，需截断到表示范围，防止高速时溢出回绕成反向前馈。
+int16_t ArmDriverNode::velocity_to_vff_counts(const double velocity, const AxisState & axis)
+{
+  const double vff_count = -1.0 * velocity * axis.count_rad_per_s_factor;
+  const double clamped = std::clamp(
+    vff_count,
+    static_cast<double>(std::numeric_limits<int16_t>::min()),
+    static_cast<double>(std::numeric_limits<int16_t>::max()));
+  return static_cast<int16_t>(clamped);
+}
+
 // 对齐所有轴的 count_zero：若当前计数对应的角度在 [-π, π] 之外，
 // 则将 count_zero 偏移一整圈（2π 对应的计数），使得关节角始终在正常范围内。
 // 这是为了处理上电时绝对编码器位置可能超出表示范围的问题。
@@ -239,16 +253,19 @@ bool ArmDriverNode::read_hardware_state_locked()
 }
 
 // 将命令位置同步为当前实际位置，用于初始化或紧急停止后防止位置跳变。
-// 确保机械臂下一次写入命令时从当前位置平滑开始运动。
+// 确保机械臂下一次写入命令时从当前位置平滑开始运动。命令速度清零（原地保持）。
 void ArmDriverNode::synchronize_commands_to_current_locked()
 {
   for (auto & module : modules_) {
     module.axis1.command_position = module.axis1.position;
+    module.axis1.command_velocity = 0.0;
     module.axis2.command_position = module.axis2.position;
+    module.axis2.command_velocity = 0.0;
   }
 }
 
-// 将 command_position 写入到 EtherCAT PDO（位置控制模式），速度前馈设为 0。
+// 将 command_position / command_velocity 写入到 EtherCAT PDO（位置控制模式 + 速度前馈）。
+// 速度前馈让伺服不必单靠位置环误差去追 100Hz 的位置台阶，是消除低速"打枪"噪音的关键。
 // 若驱动未处于位置模式则先切换，保证控制模式一致。
 bool ArmDriverNode::write_joint_commands_locked()
 {
@@ -260,8 +277,8 @@ bool ArmDriverNode::write_joint_commands_locked()
 
       module.client->setAxis1PosCnt(position_to_counts(module.axis1.command_position, module.axis1));
       module.client->setAxis2PosCnt(position_to_counts(module.axis2.command_position, module.axis2));
-      module.client->setAxis1VelFFCnt(0);
-      module.client->setAxis2VelFFCnt(0);
+      module.client->setAxis1VelFFCnt(velocity_to_vff_counts(module.axis1.command_velocity, module.axis1));
+      module.client->setAxis2VelFFCnt(velocity_to_vff_counts(module.axis2.command_velocity, module.axis2));
     }
   } catch (const std::exception & ex) {
     connected_ = false;
@@ -272,7 +289,8 @@ bool ArmDriverNode::write_joint_commands_locked()
   return true;
 }
 
-// 从 JointState 消息中提取目标位置到内部 targets 数组。
+// 从 JointState 消息中提取目标位置/速度到内部 targets 数组。
+// velocity 可选：长度与 position 一致时作为速度前馈目标，否则按 0 处理。
 // 支持三种格式：
 //   1. 带 name 字段（按关节名查找，可部分指定）
 //   2. 不带 name、长度 = command_joint_names_ 数量（按 command 顺序）
@@ -280,15 +298,19 @@ bool ArmDriverNode::write_joint_commands_locked()
 bool ArmDriverNode::fill_command_targets_locked(
   const sensor_msgs::msg::JointState & msg,
   std::vector<double> & targets,
+  std::vector<double> & velocity_targets,
   std::vector<bool> & has_target)
 {
   const size_t joint_count = internal_joint_names_.size();
   targets.assign(joint_count, 0.0);
+  velocity_targets.assign(joint_count, 0.0);
   has_target.assign(joint_count, false);
 
   if (msg.position.empty()) {
     return false;
   }
+
+  const bool has_velocity = msg.velocity.size() == msg.position.size();
 
   if (msg.name.size() == msg.position.size() && !msg.name.empty()) {
     bool matched = false;
@@ -298,6 +320,9 @@ bool ArmDriverNode::fill_command_targets_locked(
         continue;
       }
       targets[it->second] = msg.position[i];
+      if (has_velocity) {
+        velocity_targets[it->second] = msg.velocity[i];
+      }
       has_target[it->second] = true;
       matched = true;
     }
@@ -308,6 +333,9 @@ bool ArmDriverNode::fill_command_targets_locked(
     for (size_t i = 0; i < msg.position.size(); ++i) {
       const size_t internal_idx = command_to_internal_indices_[i];
       targets[internal_idx] = msg.position[i];
+      if (has_velocity) {
+        velocity_targets[internal_idx] = msg.velocity[i];
+      }
       has_target[internal_idx] = true;
     }
     return true;
@@ -316,6 +344,9 @@ bool ArmDriverNode::fill_command_targets_locked(
   if (msg.position.size() == joint_count) {
     for (size_t i = 0; i < msg.position.size(); ++i) {
       targets[i] = msg.position[i];
+      if (has_velocity) {
+        velocity_targets[i] = msg.velocity[i];
+      }
       has_target[i] = true;
     }
     return true;

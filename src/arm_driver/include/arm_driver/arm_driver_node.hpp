@@ -48,6 +48,9 @@ private:
     double effort{0.0};      // 当前关节力矩（N·m）
     // command_position：上层最近下发的目标关节角度（rad），写入 PDO 前换算成计数值
     double command_position{0.0};
+    // command_velocity：上层下发的目标关节速度（rad/s），写入 PDO 的速度前馈（VelFF）。
+    // 指令消息不带 velocity 时为 0（等效纯位置模式）
+    double command_velocity{0.0};
   };
 
   struct ModuleState
@@ -83,6 +86,7 @@ private:
   static double counts_to_velocity(int16_t vel_count, const AxisState & axis);
   static double counts_to_effort(int16_t trq_count, const AxisState & axis);
   static int32_t position_to_counts(double position, const AxisState & axis);
+  static int16_t velocity_to_vff_counts(double velocity, const AxisState & axis);
 
   void align_count_zeros_locked();
   void align_axis_count_zero_locked(AxisState & axis, int32_t pos_count);
@@ -93,6 +97,7 @@ private:
   bool fill_command_targets_locked(
     const sensor_msgs::msg::JointState & msg,
     std::vector<double> & targets,
+    std::vector<double> & velocity_targets,
     std::vector<bool> & has_target);
 
   bool invoke_core_service_locked(DriverServiceFn fn, std::string & message);

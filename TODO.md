@@ -17,6 +17,11 @@
 
 ## P0（必须，先让巡检闭环真实成立）
 
+### 机械臂轨迹
+- [ ] 机械臂轨迹平滑性修复真机验证（Hermite 插值 + VelFF 速度前馈，替代线性插值 + 零前馈）：
+  先低速（ARM_SPEED=0.4）对比震动/噪音，再逐步提 `acceleration_scaling`（0.5 → 0.8）；
+  验证方式：`ros2 bag record /inspection/arm/joint_cmd /joint_states` 对比指令/实际速度曲线
+
 ### 任务编排
 - [ ] 确认 `task_coordinator` 主状态机固定为巡检流程：`MOVING_TO_STATION -> ARM_PRESET -> DEPTH_ADJUST -> CAPTURING`
 - [ ] `task_coordinator` 在 `CAPTURING` 阶段先调用 `hikvision/trigger_capture`，等待新图像后再触发 `defect_detector/detect_defect`
@@ -63,7 +68,9 @@
 ## P2（工程化）
 
 - [ ] `task_coordinator` 拆分 `CoordinatorCore`（无 ROS 依赖）+ `InterlockPolicy` + `RosAdapter`
-- [ ] `arm_controller` 拆分 `MoveItFacade` + `TrajectoryExecutor` + `DriverBridge`
+- [ ] `arm_controller` 拆分 `MoveItFacade` + `TrajectoryExecutor` + `DriverBridge`；解决回调阻塞问题
+- [ ] 轨迹插值下沉到 `arm_driver`：driver 接收整条 `JointTrajectory`，在自身定时线程按固定周期插值写 PDO，
+  消除 arm_controller→DDS→driver 跳转的毫秒级抖动（高速下仍有噪音时的下一步；长期评估移植 elfin_ros_control/ros2_control）
 - [ ] `hikvision_driver` 拆分 `HkSdkSession` + `GrabWorker` + `MonitorWorker` + `RosAdapter`
 - [ ] `defect_detector` 拆分 `DefectModel` + `Preprocess` + `Postprocess` + `RosAdapter`
 - [ ] 为关键逻辑补单测：站位 YAML 解析、深度 ROI 统计、局部点云拟合、状态机推进
